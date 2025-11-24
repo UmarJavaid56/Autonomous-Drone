@@ -1,0 +1,63 @@
+%YAML:1.0
+
+#--------------------------------------------------------------------------------------------
+# Camera Parameters. Adapted for OAK-D mono RGB @ 640x480
+#--------------------------------------------------------------------------------------------
+
+Camera.type: "PinHole"
+
+# Image size
+Camera.width: 640
+Camera.height: 480
+
+# Approx intrinsics for now (you should later replace with real calibration)
+Camera.fx: 700.0
+Camera.fy: 700.0
+Camera.cx: 320.0
+Camera.cy: 240.0
+
+# Radial-Tangential distortion (set to 0 if rectified)
+Camera.k1: 0.0
+Camera.k2: 0.0
+Camera.p1: 0.0
+Camera.p2: 0.0
+Camera.k3: 0.0
+
+# Camera frames per second
+Camera.fps: 30.0
+
+# Color order: 1 = RGB, 0 = BGR
+# depthai gives BGR frames through OpenCV by default, but ORB-SLAM3 just uses this as a flag.
+Camera.RGB: 1
+
+# Close/far plane for visualization (meters)
+Camera.thDepth: 40.0
+
+# Camera baseline times fx (for mono just set small non-zero)
+Camera.bf: 40.0
+
+#--------------------------------------------------------------------------------------------
+# ORB Parameters
+#--------------------------------------------------------------------------------------------
+
+ORBextractor.nFeatures: 1000
+ORBextractor.scaleFactor: 1.2
+ORBextractor.nLevels: 8
+ORBextractor.iniThFAST: 20
+ORBextractor.minThFAST: 7
+
+#--------------------------------------------------------------------------------------------
+# Viewer Parameters
+#--------------------------------------------------------------------------------------------
+
+Viewer.KeyFrameSize: 0.05
+Viewer.KeyFrameLineWidth: 1.0
+Viewer.GraphLineWidth: 0.9
+Viewer.PointSize: 2.0
+Viewer.CameraSize: 0.08
+Viewer.CameraLineWidth: 3.0
+Viewer.ViewpointX: 0.0
+Viewer.ViewpointY: -0.7
+Viewer.ViewpointZ: -1.8
+Viewer.ViewpointF: 500.0
+
