@@ -1,25 +1,17 @@
 <?xml version="1.0"?>
 <?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
 <package format="3">
-  <name>vio_bringup</name>
+  <name>vio_mavlink_bridge</name>
   <version>0.0.0</version>
-  <description>VIO bringup package containing launch files for DepthAI + ORB-SLAM3.</description>
+  <description>TODO: Package description</description>
   <maintainer email="shraypatel@gmail.com">group7</maintainer>
   <license>TODO: License declaration</license>
 
-  <!-- Build system -->
   <buildtool_depend>ament_cmake</buildtool_depend>
 
-  <!-- C++ / rclcpp used in launch-related utilities (if any) -->
   <depend>rclcpp</depend>
+  <depend>geometery_msgs</depend>
 
-  <!-- Runtime dependencies for the launch file -->
-  <exec_depend>launch</exec_depend>
-  <exec_depend>launch_ros</exec_depend>
-  <exec_depend>depthai_cam</exec_depend>
-  <exec_depend>orbslam3_bridge</exec_depend>
-
-  <!-- Test deps -->
   <test_depend>ament_lint_auto</test_depend>
   <test_depend>ament_lint_common</test_depend>
 
@@ -27,4 +19,3 @@
     <build_type>ament_cmake</build_type>
   </export>
 </package>
-
