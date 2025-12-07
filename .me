@@ -1,0 +1,191 @@
+# Autonomous Drone VIO Project Context
+
+## Project Overview
+Visual-Inertial Odometry (VIO) system for autonomous drone using OAK-D camera, ORB-SLAM3, and PX4 autopilot integration via MAVROS.
+
+## Tech Stack & Data Flow
+
+```
+OAK-D Camera
+    │
+    ▼
+depthai_cam (ROS2 driver)
+    │ publishes: /camera/image_raw (sensor_msgs/Image)
+    │ frame: oak_rgb_optical_frame
+    ▼
+orbslam3_bridge
+    │ subscribes: /camera/image_raw
+    │ publishes: /orbslam3/pose (geometry_msgs/PoseStamped)
+    │ frame: world (ENU convention from ORB-SLAM3)
+    ▼
+vio_mavlink_bridge
+    │ subscribes: /orbslam3/pose
+    │ publishes: /mavros/vision_pose/pose (geometry_msgs/PoseStamped)
+    │ TODO: ENU → NED frame conversion
+    ▼
+MAVROS (ROS2 ↔ MAVLink bridge)
+    │ fcu_url: udp://:14540@localhost:14541
+    │ republishes vision_pose to MAVLink VISION_POSITION_ESTIMATE
+    ▼
+PX4 SITL (v1.16.0) running x500 simulation
+    │ launch: make px4_sitl_default jmavsim
+    │ UDP port: 14541
+    │ uses vision pose for EKF2 fusion (VIO)
+```
+
+## ROS2 Workspace Structure
+
+### Packages
+- **depthai_cam** (`ament_python`): OAK-D camera driver using DepthAI SDK
+- **orbslam3_bridge** (`ament_cmake`): Wraps ORB-SLAM3 monocular SLAM as ROS2 node
+- **vio_mavlink_bridge** (`ament_cmake`): Converts SLAM pose to MAVROS vision_pose topic
+- **vio_bringup** (`ament_cmake`): Launch files orchestrating the pipeline
+
+### External Dependencies
+- **ORB_SLAM3**: Prebuilt SLAM library at `ros2_ws/src/external/ORB_SLAM3/`
+  - Vocabulary: `Vocabulary/ORBvoc.txt`
+  - Requires camera calibration YAML
+
+## Key Topics & Frames
+
+### Published Topics
+- `/camera/image_raw` - Raw mono/RGB image from OAK-D (640x480 default)
+- `/orbslam3/pose` - SLAM pose in ENU frame (frame_id: "world")
+- `/mavros/vision_pose/pose` - Vision pose for PX4 EKF (target frame: NED)
+
+### Frame Conventions
+- **ORB-SLAM3 output**: ENU (East-North-Up)
+- **PX4/MAVLink expected**: NED (North-East-Down)
+- **Transform needed**: Rotate ENU → NED in vio_mavlink_bridge
+
+## Configuration Files
+
+### Camera Calibration
+`config/oakd_mono.yaml` - ORB-SLAM3 camera settings
+- Currently contains placeholder intrinsics (640x480)
+- Must be calibrated for actual OAK-D hardware
+
+### Launch Parameters
+`vio_bringup/launch/vio_oakd_orbslam3.launch.py`:
+- `voc_file`: Path to ORBvoc.txt (default: `/home/group7/...`)
+- `settings_file`: Path to camera YAML (default: `/home/group7/...`)
+- **Note**: Hardcoded paths need override for other environments
+
+## MAVROS Integration (In Progress)
+
+### PX4 SITL Setup
+```bash
+# Terminal 1: Start PX4 SITL with jMAVSim
+cd /path/to/PX4-Autopilot
+make px4_sitl_default jmavsim
+
+# PX4 listens on UDP port 14541 for MAVLink
+```
+
+### MAVROS Configuration
+- **fcu_url**: `udp://:14540@localhost:14541`
+- **Plugin needed**: `vision_pose_estimate` (publishes `/mavros/vision_pose/pose`)
+- **Frame**: Must send NED-frame poses with correct timestamps
+
+### ROS2 Launch
+```bash
+# Terminal 2: Source workspace and launch VIO + MAVROS
+cd ros2_ws
+source install/setup.bash
+ros2 launch vio_bringup vio_sitl_mavros.launch.py
+```
+
+## Build Instructions
+
+### Dependencies
+```bash
+# Install ROS2 (Humble assumed) and core tools
+sudo apt install ros-humble-desktop python3-colcon-common-extensions
+
+# Install DepthAI
+pip install depthai
+
+# Install MAVROS
+sudo apt install ros-humble-mavros ros-humble-mavros-extras
+
+# Install geographiclib datasets for MAVROS
+sudo /opt/ros/humble/lib/mavros/install_geographiclib_datasets.sh
+```
+
+### Build Workspace
+```bash
+cd ros2_ws
+colcon build --symlink-install
+source install/setup.bash
+```
+
+## Known Issues & TODOs
+
+### Current State (as of Dec 2025)
+1. ✅ OAK-D camera publishing images
+2. ✅ ORB-SLAM3 generating pose estimates
+3. ⚠️ **vio_mavlink_bridge**: Only logs poses, doesn't republish yet
+4. ❌ **ENU→NED conversion**: Not implemented
+5. ❌ **MAVROS launch**: Not integrated into launch files
+6. ⚠️ **package.xml typo**: `geometery_msgs` → needs fix to `geometry_msgs`
+
+### Immediate Tasks
+- [ ] Fix `vio_mavlink_bridge/package.xml` dependency typo
+- [ ] Implement pose republishing in `vio_mavlink_bridge_node.cpp`
+- [ ] Add ENU→NED frame transformation logic
+- [ ] Create `vio_sitl_mavros.launch.py` with MAVROS node
+- [ ] Test full pipeline with PX4 SITL
+- [ ] Calibrate OAK-D camera and update `oakd_mono.yaml`
+
+### Frame Transformation Math (ENU → NED)
+```
+NED.x =  ENU.y  (North = East in ENU)
+NED.y =  ENU.x  (East = North in ENU)
+NED.z = -ENU.z  (Down = -Up)
+
+Quaternion rotation: 90° yaw + 180° roll
+```
+
+## Team Collaboration Notes
+
+### Modular Responsibilities
+- **Camera team**: `depthai_cam` - OAK-D driver and calibration
+- **SLAM team**: `orbslam3_bridge` - ORB-SLAM3 integration
+- **Your module**: `vio_mavlink_bridge` + MAVROS - PX4 SITL integration
+
+### Non-Intrusive Development Guidelines
+- Keep changes isolated to `vio_mavlink_bridge` and new launch files
+- Don't modify `depthai_cam` or `orbslam3_bridge` sources
+- Use launch arguments for flexibility (don't hardcode paths)
+- Test with SITL before hardware deployment
+
+## Testing & Validation
+
+### Expected Behavior
+1. OAK-D publishes images → ORB-SLAM3 tracks features → Pose on `/orbslam3/pose`
+2. Bridge converts ENU→NED → Republishes to `/mavros/vision_pose/pose`
+3. MAVROS forwards to PX4 → EKF2 fuses vision pose
+4. Check in QGroundControl: "Vision position" shows green indicator
+
+### Useful Debug Commands
+```bash
+# Check topics
+ros2 topic list
+ros2 topic echo /orbslam3/pose
+ros2 topic echo /mavros/vision_pose/pose
+
+# Check MAVROS connection
+ros2 topic echo /mavros/state
+
+# Monitor TF tree
+ros2 run tf2_tools view_frames
+```
+
+## References
+- [PX4 VIO Integration Docs](https://docs.px4.io/main/en/computer_vision/visual_inertial_odometry.html)
+- [MAVROS Vision Pose Plugin](https://github.com/mavlink/mavros/blob/ros2/mavros_extras/src/plugins/vision_pose_estimate.cpp)
+- [ORB-SLAM3 GitHub](https://github.com/UZ-SLAMLab/ORB_SLAM3)
+- [OAK-D DepthAI Docs](https://docs.luxonis.com/)
+
+---
+*Last updated: December 6, 2025*
