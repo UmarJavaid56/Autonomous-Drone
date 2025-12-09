@@ -175,32 +175,32 @@ def main(args=None):
     parser.add_argument('--rate', type=float, default=30.0,
                        help='Publishing rate in Hz (default: 30.0)')
     
-    args = parser.parse_args()
+    parsed_args = parser.parse_args()
     
     # Determine pose source
     static_pose = None
-    if args.x is not None or args.y is not None or args.z is not None:
+    if parsed_args.x is not None or parsed_args.y is not None or parsed_args.z is not None:
         static_pose = {
-            'x': args.x if args.x is not None else 0.0,
-            'y': args.y if args.y is not None else 0.0,
-            'z': args.z if args.z is not None else -2.0,
+            'x': parsed_args.x if parsed_args.x is not None else 0.0,
+            'y': parsed_args.y if parsed_args.y is not None else 0.0,
+            'z': parsed_args.z if parsed_args.z is not None else -2.0,
             'qx': 0.0,
             'qy': 0.0,
             'qz': 0.0,
             'qw': 1.0
         }
     
-    if not args.trajectory and not args.csv and not static_pose:
+    if not parsed_args.trajectory and not parsed_args.csv and not static_pose:
         parser.print_help()
         sys.exit(1)
     
     rclpy.init(args=args)
     node = NEDPosePublisher(
-        trajectory_type=args.trajectory,
-        csv_file=args.csv,
+        trajectory_type=parsed_args.trajectory,
+        csv_file=parsed_args.csv,
         static_pose=static_pose,
-        topic=args.topic,
-        rate=args.rate
+        topic=parsed_args.topic,
+        rate=parsed_args.rate
     )
     
     try:

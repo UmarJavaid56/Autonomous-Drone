@@ -4,10 +4,6 @@ from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
 
 def generate_launch_description():
-    # Launch arguments
-    pose_topic = LaunchConfiguration('pose_topic')
-    fcu_url = LaunchConfiguration('fcu_url')
-
     return LaunchDescription([
         # Launch arguments
         DeclareLaunchArgument(
@@ -27,9 +23,9 @@ def generate_launch_description():
             executable='vio_mavlink_bridge_node',
             name='vio_mavlink_bridge',
             output='screen',
-            parameters=[{
-                'pose_topic': pose_topic,
-            }]
+            remappings=[
+                ('pose_input', LaunchConfiguration('pose_topic'))
+            ]
         ),
 
         # MAVROS Node for SITL
@@ -39,10 +35,10 @@ def generate_launch_description():
             name='mavros',
             output='screen',
             parameters=[{
-                'fcu_url': fcu_url,
+                'fcu_url': LaunchConfiguration('fcu_url'),
                 'system_id': 1,
                 'component_id': 240,
-                'plugin_blacklist': [],  # Enable all plugins including vision_pose_estimate
+                'plugin_blacklist': '',
             }]
         ),
     ])
