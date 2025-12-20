@@ -26,7 +26,14 @@ public:
             std::bind(&VioMavlinkBridgeNode::poseCallback, this, std::placeholders::_1)
         );
 
+        // Publisher for MAVROS vision pose topic
+        vision_pose_pub_ = this->create_publisher<geometry_msgs::msg::PoseStamped>(
+            "/mavros/vision_pose/pose",
+            10
+        );
+
         RCLCPP_INFO(this->get_logger(), "vio_mavlink_bridge node started");
+        RCLCPP_INFO(this->get_logger(), "Publishing to: /mavros/vision_pose/pose");
     }
 
 private:
@@ -35,18 +42,26 @@ private:
         const auto &p = msg->pose.position;
         const auto &q = msg->pose.orientation;
 
-        RCLCPP_INFO(this->get_logger(),
-                    "ORB-SLAM3 pose: "
+        RCLCPP_DEBUG(this->get_logger(),
+                    "Received pose: "
                     "pos [x=%.3f y=%.3f z=%.3f], "
                     "ori [x=%.3f y=%.3f z=%.3f w=%.3f]",
                     p.x, p.y, p.z,
                     q.x, q.y, q.z, q.w);
 
-        // TODO: convert pose -> MAVLink ODOMETRY and send over serial
+        // Republish to MAVROS vision pose topic
+        // Note: Assuming input data is already in NED frame for testing
+        auto vision_pose_msg = std::make_shared<geometry_msgs::msg::PoseStamped>();
+        vision_pose_msg->header = msg->header;
+        vision_pose_msg->header.frame_id = "map";  // MAVROS expects map frame
+        vision_pose_msg->pose = msg->pose;
+
+        vision_pose_pub_->publish(*vision_pose_msg);
     }
 
     std::string pose_topic_;
     rclcpp::Subscription<geometry_msgs::msg::PoseStamped>::SharedPtr pose_sub_;
+    rclcpp::Publisher<geometry_msgs::msg::PoseStamped>::SharedPtr vision_pose_pub_;
 };
 
 int main(int argc, char ** argv)
