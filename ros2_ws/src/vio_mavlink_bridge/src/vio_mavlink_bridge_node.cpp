@@ -13,7 +13,7 @@ public:
         // Declare a parameter for the pose topic, with a default
         pose_topic_ = this->declare_parameter<std::string>(
             "pose_topic",
-            "/orbslam3/pose"   // <-- change this default if needed
+            "/orbslam3/pose"   // <-- subscribe to ORB-SLAM3 output
         );
 
         RCLCPP_INFO(this->get_logger(),
@@ -49,12 +49,22 @@ private:
                     p.x, p.y, p.z,
                     q.x, q.y, q.z, q.w);
 
-        // Republish to MAVROS vision pose topic
-        // Note: Assuming input data is already in NED frame for testing
+        // Convert from ENU to NED frame for PX4
+        // ENU: X=East, Y=North, Z=Up
+        // NED: X=North, Y=East, Z=Down
         auto vision_pose_msg = std::make_shared<geometry_msgs::msg::PoseStamped>();
         vision_pose_msg->header = msg->header;
         vision_pose_msg->header.frame_id = "map";  // MAVROS expects map frame
-        vision_pose_msg->pose = msg->pose;
+
+        // ENU → NED conversion
+        vision_pose_msg->pose.position.x = p.y;    // ENU Y (North) → NED X (North)
+        vision_pose_msg->pose.position.y = p.x;    // ENU X (East) → NED Y (East)
+        vision_pose_msg->pose.position.z = -p.z;   // ENU Z (Up) → NED Z (Down) = -Up
+
+        // Orientation also needs to be transformed for the frame change
+        // For now, keep orientation as-is (assuming it's relative to ENU frame)
+        // TODO: Implement proper quaternion transformation for ENU→NED
+        vision_pose_msg->pose.orientation = msg->pose.orientation;
 
         vision_pose_pub_->publish(*vision_pose_msg);
     }
