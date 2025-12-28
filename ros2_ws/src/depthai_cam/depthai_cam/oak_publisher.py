@@ -30,7 +30,7 @@ class OakPublisher(Node):
         self.bridge = CvBridge()
         self.publisher_ = self.create_publisher(Image, self.topic_name, 10)
 
-        # ---- DepthAI pipeline (matching your working demo) ----
+        # ---- DepthAI pipeline ----
         self.pipeline = dai.Pipeline()
 
         camRgb = self.pipeline.create(dai.node.ColorCamera)

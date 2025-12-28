@@ -50,9 +50,12 @@ __pycache__/
 *.log
 *.tmp
 *.bak
+/ros2_ws/src/log
+/log
 
 ############################
-# GitHub Copilot
+# Descriptions
 ############################
-.github/copilot-instructions.md
+*.md
+*.me
 

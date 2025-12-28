@@ -1,0 +1,3 @@
+[console_scripts]
+oak_publisher = depthai_cam.oak_publisher:main
+
