@@ -45,7 +45,6 @@ setup(
     entry_points={
         'console_scripts': [
             'oak_publisher = depthai_cam.oak_publisher:main',
-            'static_tf_publisher = depthai_cam.static_tf_publisher:main',
         ],
     },
 )

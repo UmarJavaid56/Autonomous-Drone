@@ -150,13 +150,17 @@
       name="ignition::gazebo::systems::Imu">
     </plugin>
 
-    <!-- Camera bridging handled via ros_gz_bridge in launch -->
+    <!-- ROS Image Bridge for cameras -->
+    <plugin filename="ignition-gazebo-ros-image-bridge-system"
+      name="ignition::gazebo::systems::RosImageBridge">
+      <ros_advertise_camera_info>true</ros_advertise_camera_info>
+    </plugin>
 
     <!-- Explicit world frame model -->
     <model name="world_frame">
       <static>true</static>
       <pose>0 0 0 0 0 0</pose>
-      <link name="world_link">
+      <link name="world">
         <pose>0 0 0 0 0 0</pose>
         <inertial>
           <mass>1e-6</mass>
@@ -171,7 +175,8 @@
         <publish_link_pose>true</publish_link_pose>
         <publish_nested_model_pose>false</publish_nested_model_pose>
         <use_pose_vector_msg>true</use_pose_vector_msg>
-        <update_frequency>30</update_frequency>
+        <static_publisher>true</static_publisher>
+        <static_update_frequency>1</static_update_frequency>
       </plugin>
     </model>
 
@@ -194,13 +199,14 @@
         <publish_link_pose>true</publish_link_pose>
         <publish_nested_model_pose>false</publish_nested_model_pose>
         <use_pose_vector_msg>true</use_pose_vector_msg>
-        <update_frequency>30</update_frequency>
+        <static_publisher>true</static_publisher>
+        <static_update_frequency>1</static_update_frequency>
       </plugin>
     </model>
 
     <!-- Joint defining world -> odom relationship -->
     <joint name="world_to_odom_joint" type="fixed">
-      <parent>world_frame::world_link</parent>
+      <parent>world_frame::world</parent>
       <child>odom_frame::odom</child>
       <pose>0 0 0 0 0 0</pose>
     </joint>

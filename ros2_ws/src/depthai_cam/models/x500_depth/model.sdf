@@ -22,7 +22,8 @@
       <publish_visual_pose>false</publish_visual_pose>
       <publish_nested_model_pose>true</publish_nested_model_pose>
       <use_pose_vector_msg>true</use_pose_vector_msg>
-      <update_frequency>30</update_frequency>
+      <static_publisher>true</static_publisher>
+      <static_update_frequency>30</static_update_frequency>
     </plugin>
 
     <!-- Joint State Publisher Plugin - Publishes joint states -->
@@ -33,6 +34,15 @@
       <joint_name>rotor_3_joint</joint_name>
       <joint_name>CameraJoint</joint_name>
       <update_rate>30</update_rate>
+    </plugin>
+
+    <!-- Odometry Publisher Plugin - Publishes odometry -->
+    <plugin filename="gz-sim-odometry-publisher-system" name="gz::sim::systems::OdometryPublisher">
+      <odom_frame>odom</odom_frame>
+      <robot_base_frame>base_link</robot_base_frame>
+      <odom_publish_frequency>30</odom_publish_frequency>
+      <odom_topic>/odom</odom_topic>
+      <tf_topic>/tf</tf_topic>
     </plugin>
   </model>
 </sdf>
