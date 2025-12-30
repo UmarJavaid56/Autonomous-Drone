@@ -144,5 +144,66 @@
       <render_engine>ogre</render_engine>
     </plugin>
 
+    <!-- IMU system -->
+    <plugin
+      filename="ignition-gazebo-imu-system"
+      name="ignition::gazebo::systems::Imu">
+    </plugin>
+
+    <!-- Camera bridging handled via ros_gz_bridge in launch -->
+
+    <!-- Explicit world frame model -->
+    <model name="world_frame">
+      <static>true</static>
+      <pose>0 0 0 0 0 0</pose>
+      <link name="world_link">
+        <pose>0 0 0 0 0 0</pose>
+        <inertial>
+          <mass>1e-6</mass>
+          <inertia>
+            <ixx>1e-9</ixx>
+            <iyy>1e-9</iyy>
+            <izz>1e-9</izz>
+          </inertia>
+        </inertial>
+      </link>
+      <plugin filename="gz-sim-pose-publisher-system" name="gz::sim::systems::PosePublisher">
+        <publish_link_pose>true</publish_link_pose>
+        <publish_nested_model_pose>false</publish_nested_model_pose>
+        <use_pose_vector_msg>true</use_pose_vector_msg>
+        <update_frequency>30</update_frequency>
+      </plugin>
+    </model>
+
+    <!-- Static odom frame model publishing TF (world -> odom) -->
+    <model name="odom_frame">
+      <static>true</static>
+      <pose>0 0 0 0 0 0</pose>
+      <link name="odom">
+        <pose>0 0 0 0 0 0</pose>
+        <inertial>
+          <mass>1e-6</mass>
+          <inertia>
+            <ixx>1e-9</ixx>
+            <iyy>1e-9</iyy>
+            <izz>1e-9</izz>
+          </inertia>
+        </inertial>
+      </link>
+      <plugin filename="gz-sim-pose-publisher-system" name="gz::sim::systems::PosePublisher">
+        <publish_link_pose>true</publish_link_pose>
+        <publish_nested_model_pose>false</publish_nested_model_pose>
+        <use_pose_vector_msg>true</use_pose_vector_msg>
+        <update_frequency>30</update_frequency>
+      </plugin>
+    </model>
+
+    <!-- Joint defining world -> odom relationship -->
+    <joint name="world_to_odom_joint" type="fixed">
+      <parent>world_frame::world_link</parent>
+      <child>odom_frame::odom</child>
+      <pose>0 0 0 0 0 0</pose>
+    </joint>
+
   </world>
 </sdf>
