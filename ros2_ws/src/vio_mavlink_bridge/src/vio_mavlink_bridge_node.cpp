@@ -13,11 +13,11 @@ public:
         // Declare a parameter for the pose topic, with a default
         pose_topic_ = this->declare_parameter<std::string>(
             "pose_topic",
-            "/orbslam3/pose"   // <-- subscribe to ORB-SLAM3 output
+            "/orbslam3/pose_processed"   // <-- subscribe to processed ORB-SLAM3 output
         );
 
         RCLCPP_INFO(this->get_logger(),
-                    "Subscribing to pose topic: %s",
+                    "VIO bridge subscribing to pose topic: %s",
                     pose_topic_.c_str());
 
         pose_sub_ = this->create_subscription<geometry_msgs::msg::PoseStamped>(

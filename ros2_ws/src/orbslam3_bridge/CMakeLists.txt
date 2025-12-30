@@ -18,8 +18,8 @@ find_package(OpenGL REQUIRED)
 set(Pangolin_DIR "/usr/local/lib/cmake/Pangolin")
 find_package(Pangolin REQUIRED)
 
-# ORB_SLAM3 root (relative to this package)
-set(ORB_SLAM3_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/../external/ORB_SLAM3")
+# ORB_SLAM3 root (installed externally)
+set(ORB_SLAM3_ROOT "$ENV{HOME}/ORB_SLAM3")
 
 include_directories(
   ${ORB_SLAM3_ROOT}                          # ORB_SLAM3 root
@@ -30,6 +30,7 @@ include_directories(
   ${OpenCV_INCLUDE_DIRS}
   ${Pangolin_INCLUDE_DIRS}
 )
+
 
 
 
@@ -56,6 +57,12 @@ target_link_libraries(orbslam3_mono_node
   ${OpenCV_LIBS}
   ${Pangolin_LIBRARIES}
   ${OPENGL_LIBRARIES}
+)
+
+# Set rpath to find ORB_SLAM3 library at runtime
+set_target_properties(orbslam3_mono_node PROPERTIES
+  INSTALL_RPATH "$ENV{HOME}/ORB_SLAM3/lib"
+  BUILD_WITH_INSTALL_RPATH TRUE
 )
 
 # Silence Eigen / g2o deprecation warnings

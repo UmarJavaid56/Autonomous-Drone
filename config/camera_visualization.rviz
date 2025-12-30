@@ -1,0 +1,62 @@
+Panels:
+  - Class: rviz_common/Displays
+    Help Height: 78
+    Name: Displays
+    Property Tree Widget:
+      Expanded:
+        - /Camera1
+        - /Depth1
+      Splitter Ratio: 0.5
+    Tree Height: 487
+Visualization Manager:
+  Class: ""
+  Displays:
+    - Alpha: 0.5
+      Class: rviz_default_plugins/Image
+      Enabled: true
+      Name: Camera
+      Topic:
+        Depth: 1
+        Duration: 0.0
+        Value: /camera/image_raw
+      Transport Hint: raw
+      Value: true
+      Visualize: true
+    - Class: rviz_default_plugins/Image
+      Enabled: true
+      Name: Depth
+      Topic:
+        Depth: 1
+        Duration: 0.0
+        Value: /camera/depth/image_raw
+      Transport Hint: raw
+      Value: true
+      Visualize: true
+  Global Options:
+    Background Color: 48;48;48
+    Fixed Frame: camera_link
+    Frame Rate: 30
+  Tools:
+    - Class: rviz_default_plugins/Interact
+      Hide Inactive Objects: true
+  Views:
+    Current:
+      Class: rviz_default_plugins/Orbit
+      Distance: 10
+      Focal Point:
+        X: 0
+        Y: 0
+        Z: 0
+      Name: Current View
+      Near Clip Distance: 0.01
+      Pitch: 0.0
+      Target Frame: <Fixed Frame>
+      Yaw: 0.0
+    Saved: ~
+Window Geometry:
+  Height: 800
+  Hidden: false
+  Width: 1200
+  X: 100
+  Y: 100
+

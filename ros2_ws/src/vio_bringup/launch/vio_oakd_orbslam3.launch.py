@@ -10,12 +10,12 @@ def generate_launch_description():
     return LaunchDescription([
         DeclareLaunchArgument(
             'voc_file',
-            default_value='/home/group7/Desktop/Autonomous-Drone/ros2_ws/src/external/ORB_SLAM3/Vocabulary/ORBvoc.txt',
+            default_value='/home/umarj/ORB_SLAM3/Vocabulary/ORBvoc.txt',
             description='Path to ORB-SLAM3 vocabulary file'
         ),
         DeclareLaunchArgument(
             'settings_file',
-            default_value='/home/group7/Desktop/Autonomous-Drone/config/oakd_mono.yaml',
+            default_value='/home/umarj/Capstone/Autonomous-Drone/config/oakd_mono.yaml',
             description='Path to ORB-SLAM3 camera settings file'
         ),
 

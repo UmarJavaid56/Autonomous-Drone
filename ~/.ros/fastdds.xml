@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<dds xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+     xsi:noNamespaceSchemaLocation="https://www.eprosima.com/XMLSchemas/fastRTPS_Profiles.xsd">
+  <profiles>
+    <transport_descriptors>
+      <!-- Disable shared memory completely -->
+      <transport_descriptor>
+        <transport_id>UDPv4</transport_id>
+        <type>UDPv4</type>
+      </transport_descriptor>
+    </transport_descriptors>
+
+    <participant profile_name="ros2_profile" is_default_profile="true">
+      <domainId>1</domainId>
+      <rtps>
+        <name>ROS2Participant</name>
+        <!-- Disable builtin transports (SHM) -->
+        <useBuiltinTransports>false</useBuiltinTransports>
+        <!-- Use only UDPv4 transport -->
+        <userTransports>
+          <transport_id>UDPv4</transport_id>
+        </userTransports>
+      </rtps>
+    </participant>
+  </profiles>
+</dds>

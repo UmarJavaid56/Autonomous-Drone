@@ -1,0 +1,57 @@
+%YAML:1.0
+
+#--------------------------------------------------------------------------------------------
+# Camera Parameters for Gazebo x500_mono_cam (1280x960, ~100° FOV)
+#--------------------------------------------------------------------------------------------
+
+Camera.type: "PinHole"
+
+# Image size (from Gazebo mono_cam model)
+Camera.width: 1280
+Camera.height: 960
+
+# Approximate intrinsics based on resolution and FOV
+# FOV = 1.74 radians ≈ 100 degrees (from Gazebo model)
+# fx = width / (2 * tan(FOV/2)) ≈ 1280 / (2 * tan(50°)) ≈ 900
+Camera.fx: 900.0
+Camera.fy: 900.0
+Camera.cx: 640.0      # Principal point (center of image)
+Camera.cy: 480.0
+
+# Radial-Tangential distortion (set to 0 - assume rectified)
+Camera.k1: 0.0
+Camera.k2: 0.0
+Camera.p1: 0.0
+Camera.p2: 0.0
+
+# Camera fps
+Camera.fps: 30.0
+
+# Color order (RGB)
+Camera.RGB: 1
+
+#--------------------------------------------------------------------------------------------
+# ORB Extractor parameters (default values)
+#--------------------------------------------------------------------------------------------
+
+ORBextractor.nFeatures: 1000
+ORBextractor.scaleFactor: 1.2
+ORBextractor.nLevels: 8
+ORBextractor.iniThFAST: 20
+ORBextractor.minThFAST: 7
+
+#--------------------------------------------------------------------------------------------
+# Viewer Parameters (disabled for headless operation)
+#--------------------------------------------------------------------------------------------
+
+Viewer.KeyFrameSize: 0.05
+Viewer.KeyFrameLineWidth: 1
+Viewer.GraphLineWidth: 0.9
+Viewer.PointSize: 2
+Viewer.CameraSize: 0.08
+Viewer.CameraLineWidth: 3
+Viewer.ViewpointX: 0
+Viewer.ViewpointY: -0.7
+Viewer.ViewpointZ: -1.8
+Viewer.ViewpointF: 500
+

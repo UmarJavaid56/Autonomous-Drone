@@ -9,9 +9,15 @@ endif()
 find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(geometry_msgs REQUIRED)
+find_package(sensor_msgs REQUIRED)
+find_package(mavlink REQUIRED)
 
 add_executable(vio_mavlink_bridge_node
   src/vio_mavlink_bridge_node.cpp
+)
+
+add_executable(vio_mavlink_bridge_direct_node
+  src/vio_mavlink_bridge_direct_node.cpp
 )
 
 add_executable(vio_sitl_test_node
@@ -27,6 +33,13 @@ ament_target_dependencies(vio_mavlink_bridge_node
   geometry_msgs
 )
 
+ament_target_dependencies(vio_mavlink_bridge_direct_node
+  rclcpp
+  geometry_msgs
+  sensor_msgs
+  mavlink
+)
+
 ament_target_dependencies(vio_sitl_test_node
  rclcpp
   geometry_msgs
@@ -39,6 +52,7 @@ ament_target_dependencies(orb_slam3_bridge_node
 
 install(TARGETS
   vio_mavlink_bridge_node
+  vio_mavlink_bridge_direct_node
   DESTINATION lib/${PROJECT_NAME}
 )
 

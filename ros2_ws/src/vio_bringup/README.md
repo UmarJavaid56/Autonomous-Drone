@@ -2,6 +2,22 @@
 
 This package provides launch configurations for the autonomous drone VIO (Visual-Inertial Odometry) system.
 
+## MAVROS Status & Migration Path
+
+**Current Status**: MAVROS has ROS2 parameter service conflicts that prevent reliable operation. The direct MAVLink bridge provides superior SITL integration.
+
+**Future Migration**: When MAVROS ROS2 branches resolve parameter conflicts (check [MAVROS ROS2 Issues](https://github.com/mavlink/mavros/issues)), migrate by:
+
+1. Update MAVROS: `git clone -b ros2 https://github.com/mavlink/mavros.git`
+2. Replace `vio_mavlink_bridge_direct_node` with `vio_mavlink_bridge_node` in launch files
+3. Add MAVROS node with minimal plugins: `plugin_whitelist: [vision_pose, sys_status]`
+
+**Why Direct MAVLink is Better Now**:
+- ✅ No parameter service conflicts
+- ✅ Direct MAVLink communication to PX4
+- ✅ Reliable SITL testing
+- ✅ Same VISION_POSITION_ESTIMATE messages
+
 ## Architecture Overview
 
 The system follows a **proper external process architecture**:
@@ -11,46 +27,72 @@ OAK-D Camera → depthai_cam (ROS2)
     ↓ [Images]
 External ORB-SLAM3 Process (~/ORB_SLAM3/)
     ↓ [ENU Pose Estimates]
-orb_slam3_bridge → /orbslam3/pose (ROS2 topic)
-    ↓ [ENU → NED conversion]
-vio_mavlink_bridge → /mavros/vision_pose/pose
-    ↓ [MAVLink messages]
-PX4 SITL → Vision Position Fusion
+orb_slam3_bridge → /orbslam3/pose_processed (ENU)
+    ↓ [ENU → NED conversion + Direct MAVLink]
+vio_mavlink_bridge_direct → VISION_POSITION_ESTIMATE → PX4 SITL
+    ↓ [Vision Position Fusion]
+PX4 EKF2 → Improved State Estimation
 ```
 
-## Important: ORB-SLAM3 Runs Externally
+**Note**: Using direct MAVLink bridge instead of MAVROS due to ROS2 parameter service conflicts in current MAVROS versions.
 
-**ORB-SLAM3 is NOT part of this ROS2 workspace.** It runs as a separate external process.
+## Quick Start (Recommended)
 
-### Why External?
-- ORB-SLAM3 is a standalone SLAM library
-- Avoids repository bloat and licensing issues
-- Allows independent updates and testing
-- Follows industry best practices
+For the fastest setup, run the automated setup script from the project root:
 
-### Setup Instructions
+```bash
+./setup_project.sh
+```
 
-1. **Install Dependencies:**
-   ```bash
-   sudo apt install -y ros-jazzy-pangolin
-   ```
+This will install all dependencies, build ORB-SLAM3, and set up the ROS2 workspace automatically.
 
-2. **Clone ORB-SLAM3 Externally:**
-   ```bash
-   cd ~
-   git clone https://github.com/UZ-SLAMLab/ORB_SLAM3.git
-   cd ORB_SLAM3
-   # Apply C++17 patches (see main README)
-   ./build.sh
-   ```
+## Manual Setup (Advanced Users)
 
-3. **Download Vocabulary:**
-   ```bash
-   cd ~/ORB_SLAM3
-   cd Vocabulary
-   wget https://github.com/UZ-SLAMLab/ORB_SLAM3/raw/master/Vocabulary/ORBvoc.txt.tar.gz
-   tar -xf ORBvoc.txt.tar.gz
-   ```
+### ORB-SLAM3 Installation
+
+**Option 1: Automated Setup (Recommended)**
+```bash
+./setup_orb_slam3.sh
+```
+
+**Option 2: Manual Setup**
+```bash
+# Install dependencies
+sudo apt install -y ros-jazzy-pangolin build-essential cmake libeigen3-dev libopencv-dev
+
+# Clone and build ORB-SLAM3
+cd ~
+git clone https://github.com/UZ-SLAMLab/ORB_SLAM3.git
+cd ORB-SLAM3
+
+# Apply C++17 patches for modern compilers
+sed -i 's/#include <mutex>/#include <mutex>\n#include <shared_mutex>/g' include/System.h
+sed -i 's/std::mutex/std::shared_mutex/g' include/System.h
+sed -i 's/std::unique_lock<std::mutex>/std::unique_lock<std::shared_mutex>/g' include/System.h
+
+# Build
+chmod +x build.sh
+./build.sh
+
+# Download vocabulary
+cd Vocabulary
+wget https://github.com/UZ-SLAMLab/ORB_SLAM3/raw/master/Vocabulary/ORBvoc.txt.tar.gz
+tar -xf ORBvoc.txt.tar.gz
+```
+
+### Why ORB-SLAM3 is External
+
+**Current Approach**: ORB-SLAM3 installs at `~/ORB_SLAM3` (external to this repository)
+- ✅ **Easier sharing**: Others can clone and run `./setup_project.sh`
+- ✅ **No repository bloat**: Large binaries not tracked in git
+- ✅ **Independent updates**: Upgrade ORB-SLAM3 without affecting project
+- ✅ **Reusability**: Same ORB-SLAM3 can serve multiple projects
+- ✅ **Industry standard**: Follows ROS2 best practices for external dependencies
+
+**Alternative Approach**: Workspace-relative installation (like commit 084d6d4c)
+- ❌ **Sharing friction**: Others must manually install ORB-SLAM3
+- ❌ **Repository bloat**: Large binaries in git history
+- ❌ **Version coupling**: ORB-SLAM3 updates affect project commits
 
 ## Launch Files
 
