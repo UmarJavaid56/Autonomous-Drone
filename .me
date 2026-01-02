@@ -151,7 +151,7 @@ Quaternion rotation: 90° yaw + 180° roll
 ### Modular Responsibilities
 - **Camera team**: `depthai_cam` - OAK-D driver and calibration
 - **SLAM team**: `orbslam3_bridge` - ORB-SLAM3 integration
-- **Your module**: `vio_mavlink_bridge` + MAVROS - PX4 SITL integration
+- **Control team**: `vio_mavlink_bridge` + MAVROS - PX4 SITL integration
 
 ### Non-Intrusive Development Guidelines
 - Keep changes isolated to `vio_mavlink_bridge` and new launch files
