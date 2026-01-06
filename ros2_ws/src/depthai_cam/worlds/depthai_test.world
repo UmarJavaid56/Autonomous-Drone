@@ -121,33 +121,33 @@
 
     <!-- Physics plugin -->
     <plugin
-      filename="ignition-gazebo-physics-system"
-      name="ignition::gazebo::systems::Physics">
+      filename="gz-sim-physics-system"
+      name="gz::sim::systems::Physics">
     </plugin>
 
     <!-- User commands (scene broadcaster) -->
     <plugin
-      filename="ignition-gazebo-user-commands-system"
-      name="ignition::gazebo::systems::UserCommands">
+      filename="gz-sim-user-commands-system"
+      name="gz::sim::systems::UserCommands">
     </plugin>
 
     <!-- Scene broadcaster -->
     <plugin
-      filename="ignition-gazebo-scene-broadcaster-system"
-      name="ignition::gazebo::systems::SceneBroadcaster">
+      filename="gz-sim-scene-broadcaster-system"
+      name="gz::sim::systems::SceneBroadcaster">
     </plugin>
 
-    <!-- Sensors system - required for cameras -->
+    <!-- Sensors system - required for cameras (ogre2 needed for depth cameras) -->
     <plugin
-      filename="ignition-gazebo-sensors-system"
-      name="ignition::gazebo::systems::Sensors">
-      <render_engine>ogre</render_engine>
+      filename="gz-sim-sensors-system"
+      name="gz::sim::systems::Sensors">
+      <render_engine>ogre2</render_engine>
     </plugin>
 
     <!-- IMU system -->
     <plugin
-      filename="ignition-gazebo-imu-system"
-      name="ignition::gazebo::systems::Imu">
+      filename="gz-sim-imu-system"
+      name="gz::sim::systems::Imu">
     </plugin>
 
     <!-- Camera bridging handled via ros_gz_bridge in launch -->
@@ -198,12 +198,14 @@
       </plugin>
     </model>
 
-    <!-- Joint defining world -> odom relationship -->
-    <joint name="world_to_odom_joint" type="fixed">
-      <parent>world_frame::world_link</parent>
-      <child>odom_frame::odom</child>
-      <pose>0 0 0 0 0 0</pose>
-    </joint>
+    <!-- TF relationship between world and odom is handled by static_tf_publisher node -->
+
+    <!-- Include X500 drone with depth camera -->
+    <include>
+      <uri>model://x500_depth</uri>
+      <pose>0 0 1 0 0 0</pose>
+      <name>x500_depth</name>
+    </include>
 
   </world>
 </sdf>
