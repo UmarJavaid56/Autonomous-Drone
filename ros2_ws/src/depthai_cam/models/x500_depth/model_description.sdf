@@ -1,0 +1,167 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<sdf version='1.9'>
+  <model name='x500_depth'>
+    <!-- Main drone body -->
+    <link name='base_link'>
+      <inertial>
+        <mass>1.0</mass>
+        <inertia>
+          <ixx>0.01</ixx>
+          <iyy>0.01</iyy>
+          <izz>0.01</izz>
+        </inertia>
+      </inertial>
+      <visual name='base_visual'>
+        <geometry>
+          <box>
+            <size>0.3 0.3 0.1</size>
+          </box>
+        </geometry>
+      </visual>
+    </link>
+
+    <!-- Rotor 0 (front-left, CCW) -->
+    <link name='rotor_0'>
+      <inertial>
+        <mass>0.01</mass>
+        <inertia>
+          <ixx>0.00001</ixx>
+          <iyy>0.00001</iyy>
+          <izz>0.00001</izz>
+        </inertia>
+      </inertial>
+      <visual name='rotor_0_visual'>
+        <pose>0 0 0 0 0 0</pose>
+        <geometry>
+          <cylinder>
+            <radius>0.1</radius>
+            <length>0.02</length>
+          </cylinder>
+        </geometry>
+      </visual>
+    </link>
+
+    <!-- Rotor 1 (front-right, CCW) -->
+    <link name='rotor_1'>
+      <inertial>
+        <mass>0.01</mass>
+        <inertia>
+          <ixx>0.00001</ixx>
+          <iyy>0.00001</iyy>
+          <izz>0.00001</izz>
+        </inertia>
+      </inertial>
+      <visual name='rotor_1_visual'>
+        <pose>0 0 0 0 0 0</pose>
+        <geometry>
+          <cylinder>
+            <radius>0.1</radius>
+            <length>0.02</length>
+          </cylinder>
+        </geometry>
+      </visual>
+    </link>
+
+    <!-- Rotor 2 (rear-left, CW) -->
+    <link name='rotor_2'>
+      <inertial>
+        <mass>0.01</mass>
+        <inertia>
+          <ixx>0.00001</ixx>
+          <iyy>0.00001</iyy>
+          <izz>0.00001</izz>
+        </inertia>
+      </inertial>
+      <visual name='rotor_2_visual'>
+        <pose>0 0 0 0 0 0</pose>
+        <geometry>
+          <cylinder>
+            <radius>0.1</radius>
+            <length>0.02</length>
+          </cylinder>
+        </geometry>
+      </visual>
+    </link>
+
+    <!-- Rotor 3 (rear-right, CW) -->
+    <link name='rotor_3'>
+      <inertial>
+        <mass>0.01</mass>
+        <inertia>
+          <ixx>0.00001</ixx>
+          <iyy>0.00001</iyy>
+          <izz>0.00001</izz>
+        </inertia>
+      </inertial>
+      <visual name='rotor_3_visual'>
+        <pose>0 0 0 0 0 0</pose>
+        <geometry>
+          <cylinder>
+            <radius>0.1</radius>
+            <length>0.02</length>
+          </cylinder>
+        </geometry>
+      </visual>
+    </link>
+
+    <!-- Camera link with fixed offset from base_link -->
+    <link name='camera_link'>
+      <inertial>
+        <mass>0.1</mass>
+        <inertia>
+          <ixx>0.001</ixx>
+          <iyy>0.001</iyy>
+          <izz>0.001</izz>
+        </inertia>
+      </inertial>
+      <visual name='camera_visual'>
+        <geometry>
+          <cylinder>
+            <radius>0.02</radius>
+            <length>0.05</length>
+          </cylinder>
+        </geometry>
+      </visual>
+    </link>
+
+    <!-- Rotor joints (revolute around Z axis) -->
+    <joint name='rotor_0_joint' type='revolute'>
+      <parent>base_link</parent>
+      <child>rotor_0</child>
+      <origin xyz='0.127 -0.127 0.025' rpy='0 0 0'/>
+      <axis xyz='0 0 1'/>
+      <limit lower='0' upper='0' effort='0.0' velocity='0.0'/>
+    </joint>
+
+    <joint name='rotor_1_joint' type='revolute'>
+      <parent>base_link</parent>
+      <child>rotor_1</child>
+      <origin xyz='-0.127 -0.127 0.025' rpy='0 0 0'/>
+      <axis xyz='0 0 1'/>
+      <limit lower='0' upper='0' effort='0.0' velocity='0.0'/>
+    </joint>
+
+    <joint name='rotor_2_joint' type='revolute'>
+      <parent>base_link</parent>
+      <child>rotor_2</child>
+      <origin xyz='0.127 0.127 0.025' rpy='0 0 0'/>
+      <axis xyz='0 0 1'/>
+      <limit lower='0' upper='0' effort='0.0' velocity='0.0'/>
+    </joint>
+
+    <joint name='rotor_3_joint' type='revolute'>
+      <parent>base_link</parent>
+      <child>rotor_3</child>
+      <origin xyz='-0.127 0.127 0.025' rpy='0 0 0'/>
+      <axis xyz='0 0 1'/>
+      <limit lower='0' upper='0' effort='0.0' velocity='0.0'/>
+    </joint>
+
+    <!-- Fixed joint connecting camera to drone body -->
+    <joint name='camera_joint' type='fixed'>
+      <parent>base_link</parent>
+      <child>camera_link</child>
+      <origin xyz='0.12 0.03 0.242' rpy='0 0 0'/>
+    </joint>
+  </model>
+</sdf>

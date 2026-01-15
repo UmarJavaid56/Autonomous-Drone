@@ -45,13 +45,15 @@ __pycache__/
 *.cache
 
 ############################
-# Logs / Temp
+# Workspace Generated Files
 ############################
 *.log
 *.tmp
 *.bak
 /ros2_ws/src/log
 /log
+/build
+/install
 
 ############################
 # Descriptions
@@ -59,3 +61,18 @@ __pycache__/
 *.md
 *.me
 
+build/.built_by
+build/COLCON_IGNORE
+build/depthai_cam/build/lib/depthai_cam/__init__.py
+build/depthai_cam/build/lib/depthai_cam/oak_publisher.py
+build/depthai_cam/colcon_build.rc
+build/depthai_cam/colcon_command_prefix_setup_py.sh
+build/depthai_cam/colcon_command_prefix_setup_py.sh.env
+build/depthai_cam/depthai_cam.egg-info/dependency_links.txt
+build/depthai_cam/depthai_cam.egg-info/entry_points.txt
+build/depthai_cam/depthai_cam.egg-info/PKG-INFO
+build/depthai_cam/depthai_cam.egg-info/requires.txt
+build/depthai_cam/depthai_cam.egg-info/SOURCES.txt
+build/depthai_cam/depthai_cam.egg-info/top_level.txt
+build/depthai_cam/depthai_cam.egg-info/zip-safe
+build/depthai_cam/prefix_override/sitecustomize.py

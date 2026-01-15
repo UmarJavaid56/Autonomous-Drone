@@ -60,6 +60,19 @@ fi
 
 echo "ROS 2 Jazzy installed"
 
+# Install ROS 2 Gazebo bridges and tools
+echo "Installing ROS 2 Gazebo bridge and tools..."
+sudo apt install -y \
+    ros-jazzy-ros-gz-bridge \
+    ros-jazzy-ros-gz-interfaces \
+    ros-jazzy-ros-gz-sim \
+    ros-jazzy-ros-gz-image \
+    ros-jazzy-actuator-msgs \
+    ros-jazzy-gps-msgs \
+    ros-jazzy-vision-msgs
+
+echo "ROS 2 Gazebo bridge installed"
+
 # Install Gazebo Harmonic
 echo "Installing Gazebo Harmonic..."
 sudo wget https://packages.osrfoundation.org/gazebo.gpg -O /usr/share/keyrings/pkgs-osrf-archive-keyring.gpg
@@ -102,6 +115,12 @@ sudo dpkg --remove --force-all libignition-physics5-dartsim-dev libignition-phys
 sudo apt autoremove -y 2>/dev/null || true
 
 echo "Gazebo Harmonic installed with DART dependencies resolved"
+
+# Configure Gazebo command-line tools
+# Note: GZ_CONFIG_PATH must be set to /usr/share/gz for the gz sim command to work properly
+echo "Configuring Gazebo tools..."
+echo "IMPORTANT: GZ_CONFIG_PATH environment variable is set in the launch files."
+echo "If you run 'gz sim' directly, set: export GZ_CONFIG_PATH=/usr/share/gz"
 
 # Install Python argcomplete for ROS 2 shell completion
 echo "Installing Python argcomplete..."

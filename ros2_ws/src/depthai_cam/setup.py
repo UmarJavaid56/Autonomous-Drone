@@ -10,7 +10,7 @@ data_files = [
         ['resource/' + package_name]),
     ('share/' + package_name, ['package.xml']),
     ('share/' + package_name + '/launch', glob('launch/*.launch.py')),
-    ('share/' + package_name + '/worlds', glob('worlds/*.world')),
+    ('share/' + package_name + '/worlds', glob('worlds/*.world') + glob('worlds/*.sdf')),
     ('share/' + package_name + '/config', glob('config/*.rviz')),
 ]
 
@@ -45,7 +45,8 @@ setup(
     entry_points={
         'console_scripts': [
             'oak_publisher = depthai_cam.oak_publisher:main',
-            'static_tf_publisher = depthai_cam.static_tf_publisher:main',
+            'pose_to_tf = depthai_cam.pose_to_tf:main',
+            'keyboard_teleop = depthai_cam.keyboard_teleop:main',
         ],
     },
 )

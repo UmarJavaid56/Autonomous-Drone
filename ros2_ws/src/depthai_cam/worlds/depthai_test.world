@@ -1,7 +1,34 @@
 <?xml version="1.0"?>
 <sdf version="1.9">
   <world name="depthai_test_world">
-    <!-- Inline ground plane -->
+    <!-- Physics engine -->
+    <physics name="default_physics" type="ode">
+      <max_step_size>0.001</max_step_size>
+      <real_time_factor>1.0</real_time_factor>
+    </physics>
+
+    <!-- Ambient light configuration -->
+    <ambient>1 1 1 1</ambient>
+
+    <!-- Sun light model -->
+    <model name="sun">
+      <static>true</static>
+      <pose>5 5 10 0 0 0</pose>
+      <link name="sun_link">
+        <light name="sun" type="directional">
+          <diffuse>1 1 1 1</diffuse>
+          <specular>0.5 0.5 0.5 1</specular>
+          <direction>0 0 -1</direction>
+          <attenuation>
+            <range>1000</range>
+            <constant>0.9</constant>
+            <linear>0.01</linear>
+            <quadratic>0.001</quadratic>
+          </attenuation>
+          <cast_shadows>true</cast_shadows>
+        </light>
+      </link>
+    </model>
     <model name="ground_plane">
       <static>true</static>
       <link name="link">
@@ -32,19 +59,6 @@
         </visual>
       </link>
     </model>
-
-    <!-- Inline sun light -->
-    <light name="sun" type="directional">
-      <pose>0 0 10 0 0 0</pose>
-      <diffuse>1 1 1 1</diffuse>
-      <specular>0.1 0.1 0.1 1</specular>
-      <direction>-0.5 0.5 -1</direction>
-      <attenuation>
-        <range>100</range>
-        <linear>0.01</linear>
-        <constant>0.5</constant>
-      </attenuation>
-    </light>
 
     <model name="red_cube">
       <pose>2 0 0.5 0 0 0</pose>
@@ -197,8 +211,6 @@
         <update_frequency>30</update_frequency>
       </plugin>
     </model>
-
-    <!-- TF relationship between world and odom is handled by static_tf_publisher node -->
 
     <!-- Include X500 drone with depth camera -->
     <include>
