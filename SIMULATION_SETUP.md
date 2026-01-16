@@ -31,31 +31,55 @@ Two camera models defined:
 - ROS Bridge Topic: `/oak_rgb_camera` and `/oak_rgb_camera_info`
 
 ### 2. Launch Configuration
-File: `depthai_cam_sim_bridged.launch.py`
+File: `depthai_cam_sim.launch.py`
 
 **Process Flow**:
-1. Start Ignition Gazebo server (headless, -s flag)
-2. Wait 2s for world initialization
-3. Spawn depth camera model via `/world/depthai_test_world/create` service
-4. Wait 4s total
-5. Spawn RGB camera model via `/world/depthai_test_world/create` service
-6. Start ros_gz_bridge nodes for bidirectional topic bridging
+1. Set Gazebo model path (GZ_SIM_RESOURCE_PATH) for world and models
+2. Start Gazebo Harmonic simulator with OAK-D equipped X500 drone
+3. Launch RViz2 visualization
+4. Publish static TF transforms for camera frames
+5. Start `ros_gz_bridge` to bridge all camera topics from Gazebo to ROS 2
 
-**ROS 2 Topics Published**:
-- `/oak_depth_camera` (sensor_msgs/Image)
-- `/oak_depth_camera_info` (sensor_msgs/CameraInfo)
-- `/oak_rgb_camera` (sensor_msgs/Image)
-- `/oak_rgb_camera_info` (sensor_msgs/CameraInfo)
+**ROS 2 Topics Published** (from `ros_gz_bridge`):
+- `/oak_d_lite/rgb/image_raw` - RGB camera image (from sensor_msgs/Image)
+- `/oak_d_lite/rgb/camera_info` - RGB camera info (sensor_msgs/CameraInfo)
+- `/oak_d_lite/stereo/image_raw` - Stereo/RGB image from depth camera
+- `/oak_d_lite/depth/image_raw` - Raw depth image (sensor_msgs/Image)
+- `/oak_d_lite/depth/camera_info` - Depth camera intrinsics (sensor_msgs/CameraInfo)
+- `/oak_d_lite/depth/points` - Depth as point cloud (sensor_msgs/PointCloud2)
+- `/tf` - Transform frames for camera, odom, and world
 
-### 3. Topic Bridging
-Two independent `ros_gz_bridge` nodes:
-- **Depth Bridge**: Bridges `/oak_depth_camera` and `/oak_depth_camera_info` between Ignition and ROS 2
-- **RGB Bridge**: Bridges `/oak_rgb_camera` and `/oak_rgb_camera_info` between Ignition and ROS 2
+### 3. Topic Bridging with ros_gz_bridge
+The launch file uses a single `ros_gz_bridge` node configured with `parameter_bridge` executable to:
+- Bridge simulation clock to `/clock` (for `use_sim_time`)
+- Bridge all camera sensor outputs (RGB + Depth)
+- Bridge TF frame transformations
+- Remap Gazebo topics to standard ROS 2 OAK-D-like naming convention
+
+## Dependencies
+
+### Required ROS 2 Packages
+```bash
+sudo apt install -y ros-jazzy-ros-gz-bridge
+```
+
+This provides:
+- `ros_gz_bridge` - Parameter bridge for Gazebo ↔ ROS 2 topics
+- `ros_gz_interfaces` - Gazebo message definitions for ROS 2
+- `ros_gz_sim` - ROS 2 integration for Gazebo Sim
+
+If any of these are missing, install them:
+```bash
+sudo apt install -y \
+    ros-jazzy-ros-gz-bridge \
+    ros-jazzy-ros-gz-interfaces \
+    ros-jazzy-ros-gz-sim
+```
 
 ## Solution Rationale
 
-### Why Remove Direct ROS Plugins?
-Initial approach used embedded ROS plugins in SDF (`libgz-ros2-camera-system.so`, `libgz-ros2-depth-camera-system.so`). These plugins were not available in the installed packages, causing load failures.
+### Why ros_gz_bridge Instead of Direct ROS Plugins?
+Initial approach attempted to use embedded ROS 2 plugins in SDF (`libgz-ros2-camera-system.so`). These weren't available in installed packages, causing load failures.
 
 **Error Encountered**:
 ```
@@ -160,6 +184,25 @@ On Ubuntu 24.04, the system DART physics libraries conflict with the OSRF Gazebo
 3. Cleaning up stray dev packages and dependencies
 
 **If you see "trying to overwrite libdart-*.so" errors**, use the manual fix from the README Troubleshooting section.
+
+#### Gazebo Command-Line Tools Missing `sim` Subcommand
+**Problem**: Running `gz sim` fails with "command not found" or "no such command"
+
+**Cause**: The `gz` command-line tool requires the `GZ_CONFIG_PATH` environment variable to locate plugin configurations. Without it, the `sim` subcommand won't load.
+
+**Solution**: Set the environment variable before using gz:
+```bash
+export GZ_CONFIG_PATH=/usr/share/gz
+gz sim --version  # should now show Gazebo version
+```
+
+**Automatic Fix in Launch Files**: The ROS 2 launch file (`depthai_cam_sim.launch.py`) automatically sets this variable via `additional_env` in the `ExecuteProcess` action, so you don't need to set it manually when launching through ROS 2.
+
+If you need to run `gz sim` directly from the command line, add the export to your `.bashrc`:
+```bash
+echo 'export GZ_CONFIG_PATH=/usr/share/gz' >> ~/.bashrc
+source ~/.bashrc
+```
 
 #### Python argcomplete Module
 Some ROS 2 startup scripts reference an old `register-python-argcomplete` script that may not exist. The install script removes this stale reference to prevent import warnings.

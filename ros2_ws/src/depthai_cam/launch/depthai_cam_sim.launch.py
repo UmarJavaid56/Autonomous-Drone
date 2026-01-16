@@ -1,5 +1,21 @@
 #!/usr/bin/env python3
+"""Launch file for x500_depth Gazebo simulation with OAK-D Lite camera.
 
+This launch file:
+- Starts Gazebo Harmonic with the x500_depth drone model
+- Launches RViz2 for visualization
+- Bridges Gazebo topics to ROS 2 (camera streams, TF, joint states, velocity commands)
+- Publishes robot model transforms via robot_state_publisher
+
+The simulation includes:
+- x500 quadcopter with velocity control
+- OAK-D Lite camera (RGB + Depth + Point Cloud)
+- Test environment with colored objects for vision testing
+
+Velocity Control:
+- Use the keyboard_teleop node to control the drone
+- Topics: /x500_depth/cmd_vel (Twist) and /x500_depth/enable (Bool)
+"""
 import os
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
@@ -8,6 +24,7 @@ from launch_ros.actions import Node
 
 
 def generate_launch_description():
+    """Generate launch description for x500_depth simulation."""
     pkg_share = get_package_share_directory('depthai_cam')
     world_path = os.path.join(pkg_share, 'worlds', 'depthai_test.world')
     robot_description_path = os.path.join(pkg_share, 'models', 'x500_depth', 'model_description.urdf')
@@ -76,21 +93,8 @@ def generate_launch_description():
         parameters=[{'use_sim_time': True}],
     )
 
-    # Pose to TF node - converts model pose from Gazebo to odom->base_link TF
-    # Gazebo publishes gz.msgs.Pose_V which bridges to PoseArray
-    pose_to_tf = Node(
-        package='depthai_cam',
-        executable='pose_to_tf',
-        name='pose_to_tf',
-        output='screen',
-        parameters=[
-            {'use_sim_time': True},
-            {'parent_frame': 'odom'},
-            {'child_frame': 'base_link'},
-            {'pose_topic': '/model/x500_depth/pose'},  # Direct Gazebo topic
-            {'use_pose_array': True},
-        ],
-    )
+    # Note: odom->base_link TF is published by the OdometryPublisher plugin in model.sdf
+    # and bridged via the /tf topic bridge below
 
 
     # Bridges for TF and OakD-Lite camera topics (RGB + Depth + CameraInfo + PointCloud)
@@ -105,7 +109,10 @@ def generate_launch_description():
         # Bridge simulation clock to /clock so ROS nodes can use sim time
         f'/clock@rosgraph_msgs/msg/Clock[gz.msgs.Clock',
         
-        # Model pose - Gazebo publishes Pose_V (vector of poses) -> PoseArray
+        # Bridge TF transforms from Gazebo (odom->base_link published by OdometryPublisher)
+        f'/tf@tf2_msgs/msg/TFMessage[gz.msgs.Pose_V',
+        
+        # Model pose - Gazebo publishes Pose_V (vector of poses) -> PoseArray (for debugging)
         f'/model/{model_name}/pose@geometry_msgs/msg/PoseArray[gz.msgs.Pose_V',
         
         # Joint states - allows rotor visualization to update in real-time
@@ -164,7 +171,6 @@ def generate_launch_description():
         SetEnvironmentVariable('GZ_SIM_RESOURCE_PATH', ign_resource_path),
         ign_gazebo,
         static_tf_world_odom,
-        pose_to_tf,
         robot_state_publisher,
         rviz2,
         ros_gz_bridge,

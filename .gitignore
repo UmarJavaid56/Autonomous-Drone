@@ -1,11 +1,20 @@
 ############################
 # ROS2 Workspace Ignore
 ############################
+# Build artifacts (colcon build output)
 ros2_ws/build/
 ros2_ws/install/
 ros2_ws/log/
 ros2_ws/.colcon/
 ros2_ws/.workspace/
+
+# Top-level build artifacts (should not be tracked)
+build/
+install/
+log/
+
+# Python egg-info directories
+*.egg-info/
 
 ############################
 # ORB-SLAM3 Ignore
@@ -50,29 +59,3 @@ __pycache__/
 *.log
 *.tmp
 *.bak
-/ros2_ws/src/log
-/log
-/build
-/install
-
-############################
-# Descriptions
-############################
-*.md
-*.me
-
-build/.built_by
-build/COLCON_IGNORE
-build/depthai_cam/build/lib/depthai_cam/__init__.py
-build/depthai_cam/build/lib/depthai_cam/oak_publisher.py
-build/depthai_cam/colcon_build.rc
-build/depthai_cam/colcon_command_prefix_setup_py.sh
-build/depthai_cam/colcon_command_prefix_setup_py.sh.env
-build/depthai_cam/depthai_cam.egg-info/dependency_links.txt
-build/depthai_cam/depthai_cam.egg-info/entry_points.txt
-build/depthai_cam/depthai_cam.egg-info/PKG-INFO
-build/depthai_cam/depthai_cam.egg-info/requires.txt
-build/depthai_cam/depthai_cam.egg-info/SOURCES.txt
-build/depthai_cam/depthai_cam.egg-info/top_level.txt
-build/depthai_cam/depthai_cam.egg-info/zip-safe
-build/depthai_cam/prefix_override/sitecustomize.py

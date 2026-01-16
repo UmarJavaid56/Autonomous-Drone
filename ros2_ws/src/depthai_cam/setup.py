@@ -45,7 +45,6 @@ setup(
     entry_points={
         'console_scripts': [
             'oak_publisher = depthai_cam.oak_publisher:main',
-            'pose_to_tf = depthai_cam.pose_to_tf:main',
             'keyboard_teleop = depthai_cam.keyboard_teleop:main',
         ],
     },

@@ -68,6 +68,7 @@ Autonomous-Drone/
 ### Launch Simulation
 ```bash
 # Terminal 1: Launch Gazebo simulation with OAK-D camera
+# Includes ROS 2 - Gazebo bridges for camera topics
 ros2 launch depthai_cam depthai_cam_sim.launch.py
 
 # Terminal 2: Launch ORB-SLAM3 with camera feed
@@ -76,6 +77,12 @@ ros2 launch vio_bringup vio_oakd_orbslam3.launch.py
 # Terminal 3: Launch MAVROS SITL integration
 ros2 launch vio_bringup vio_sitl_mavros.launch.py
 ```
+
+**Note**: The simulation uses `ros_gz_bridge` to bridge Gazebo camera topics to ROS 2 topics. Topics published:
+- `/oak_d_lite/rgb/image_raw` - RGB camera
+- `/oak_d_lite/depth/image_raw` - Depth image
+- `/oak_d_lite/depth/points` - Depth point cloud
+- `/tf` - Transform frames
 
 ### Real Hardware
 ```bash
@@ -100,6 +107,29 @@ colcon test-result --verbose
 ```
 
 ## ⚠️ Troubleshooting
+
+### Missing ros_gz_bridge Package
+
+**Problem**: Launch fails with "package 'ros_gz_bridge' not found"
+
+**Cause**: `ros_gz_bridge` is required to bridge Gazebo camera topics to ROS 2 but wasn't installed
+
+**Solution**: Install the bridge package and dependencies
+```bash
+sudo apt install -y \
+    ros-jazzy-ros-gz-bridge \
+    ros-jazzy-ros-gz-interfaces \
+    ros-jazzy-ros-gz-sim \
+    ros-jazzy-ros-gz-image \
+    ros-jazzy-actuator-msgs \
+    ros-jazzy-gps-msgs \
+    ros-jazzy-vision-msgs
+```
+
+Or run the updated installation script:
+```bash
+./scripts/install_dependencies.sh
+```
 
 ### DART Library Conflict during Gazebo Installation
 
@@ -126,6 +156,20 @@ sudo apt install -y libdart-core+collisions+odelcpsolver6.13
 sudo dpkg --configure -a
 sudo apt autoremove -y
 ```
+
+### Gazebo `gz sim` Command Not Recognized
+
+**Problem**: Running `gz sim` fails with "no such command" error
+
+**Cause**: The `gz` command-line tool requires the `GZ_CONFIG_PATH` environment variable to locate plugin configurations.
+
+**Solution**: Set the environment variable:
+```bash
+export GZ_CONFIG_PATH=/usr/share/gz
+gz sim --version  # should now work
+```
+
+**Note**: This is automatically configured in ROS 2 launch files via `depthai_cam_sim.launch.py`, so you don't need to set it manually when launching through ROS 2.
 
 ### ROS 2 Shell Completion Warnings
 
