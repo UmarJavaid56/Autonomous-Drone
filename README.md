@@ -107,7 +107,7 @@ RTAB-Map creates 3D point cloud maps and provides:
 ./scripts/install_rtabmap.sh
 ```
 
-See [rtabmap_slam/README.md](ros2_ws/src/rtabmap_slam/README.md) for detailed usage.
+See [rtabmap_slam/README.md](ros2_ws/src/rtabmap_slam/README.md) for detailed usage and [RTAB-Map Quick Start](doc/RTABMAP_QUICKSTART.md) for step-by-step guide.
 
 ### Real Hardware
 ```bash
@@ -209,6 +209,8 @@ rm ~/.local/bin/register-python-argcomplete
 
 - [Simulation Setup Guide](SIMULATION_SETUP.md)
 - [Camera Configuration](config/oakd_mono.yaml)
+- [RTAB-Map Quick Start](doc/RTABMAP_QUICKSTART.md)
+- [RTAB-Map Integration Guide](doc/RTABMAP_INTEGRATION.md)
 - [API Documentation](doc/)
 
 ## 🤝 Contributing
