@@ -32,6 +32,7 @@ sudo apt install -y \
     lsb-release \
     software-properties-common \
     python3-pip \
+    python3-venv \
     python3-colcon-common-extensions \
     git \
     build-essential \
@@ -46,11 +47,31 @@ sudo apt install -y \
 
 echo "Basic dependencies installed"
 
+locale | grep -q "UTF-8" || {
+    echo "Setting locale to UTF-8..."
+    sudo apt install -y locales
+    sudo locale-gen en_US en_US.UTF-8
+    sudo update-locale LC_ALL=en_US.UTF-8 LANG=en_US.UTF-8
+    export LANG=en_US.UTF-8
+    echo "Locale set to UTF-8"
+}
+
+# Add Universe repository if not already added
+echo "Ensuring Universe repository is enabled..."
+sudo apt install software-properties-common
+sudo add-apt-repository universe
+
+# Install ros-dev-tools package
+echo "Installing ros-dev-tools package..."
+sudo apt update && sudo apt install -y ros-dev-tools
+
+# Update APT repository caches
+sudo apt update
+
 # Install ROS 2 Jazzy
 echo "Installing ROS 2 Jazzy..."
-sudo curl -sSL https://raw.githubusercontent.com/ros/rosdistro/master/ros.key -o /usr/share/keyrings/ros-archive-keyring.gpg
-echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/ros-archive-keyring.gpg] http://packages.ros.org/ros2/ubuntu $(lsb_release -cs) main" | sudo tee /etc/apt/sources.list.d/ros2.list > /dev/null
 sudo apt update
+sudo apt upgrade -y
 sudo apt install -y ros-jazzy-desktop
 
 # Source ROS 2 in bashrc if not already
@@ -122,25 +143,32 @@ echo "Configuring Gazebo tools..."
 echo "IMPORTANT: GZ_CONFIG_PATH environment variable is set in the launch files."
 echo "If you run 'gz sim' directly, set: export GZ_CONFIG_PATH=/usr/share/gz"
 
-# Install Python argcomplete for ROS 2 shell completion
-echo "Installing Python argcomplete..."
-sudo apt install -y python3-argcomplete || pip3 install argcomplete --user
+# Create Python virtual environment for project dependencies
+echo "Creating Python virtual environment..."
+VENV_DIR="${HOME}/.venv-autonomous-drone"
+if [ ! -d "$VENV_DIR" ]; then
+    python3 -m venv "$VENV_DIR"
+    echo "Virtual environment created at $VENV_DIR"
+else
+    echo "Virtual environment already exists at $VENV_DIR"
+fi
 
-# Remove stale argcomplete script if it exists
-rm ~/.local/bin/register-python-argcomplete 2>/dev/null || true
+# Activate venv and install Python packages
+echo "Installing Python packages in virtual environment..."
+source "$VENV_DIR/bin/activate"
+pip install --upgrade pip setuptools wheel
+pip install depthai==3.3.0
+pip install argcomplete
+deactivate
+
+echo "Python packages installed in virtual environment"
+echo "To use the environment, run: source ~/.venv-autonomous-drone/bin/activate"
+
+# Install Python argcomplete for ROS 2 shell completion (system-wide)
+echo "Installing Python argcomplete (system-wide)..."
+sudo apt install -y python3-argcomplete || true
 
 echo "Python argcomplete installed"
-
-# Install DepthAI
-echo "Installing DepthAI..."
-pip3 install depthai --user
-
-echo "DepthAI installed"
-
-# Install additional Python packages
-pip3 install setuptools==58.2.0 --user
-
-echo "Additional Python packages installed"
 
 echo ""
 echo "=========================================="
