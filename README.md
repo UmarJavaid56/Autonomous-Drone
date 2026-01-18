@@ -1,6 +1,6 @@
 # Autonomous-Drone
 
-A ROS 2-based autonomous drone system with OAK-D camera integration, ORB-SLAM3 visual odometry, and Gazebo simulation.
+A ROS 2-based autonomous drone system with OAK-D camera integration, ORB-SLAM3 visual odometry, RTAB-Map SLAM, and Gazebo simulation.
 
 ## 🚀 Quick Start
 
@@ -43,6 +43,7 @@ source /opt/ros/jazzy/setup.bash
 - **Gazebo Harmonic**: Modern simulation with Ogre2 rendering
 - **OAK-D Camera**: DepthAI-powered stereo vision
 - **ORB-SLAM3**: Real-time visual SLAM
+- **RTAB-Map**: RGB-D SLAM for 3D mapping with point clouds
 - **PX4 Integration**: MAVLink-based flight control
 
 ## 📁 Project Structure
@@ -53,6 +54,7 @@ Autonomous-Drone/
 │   ├── src/
 │   │   ├── depthai_cam/        # OAK-D camera ROS 2 driver
 │   │   ├── orbslam3_bridge/    # ORB-SLAM3 ROS 2 bridge
+│   │   ├── rtabmap_slam/       # RTAB-Map SLAM integration
 │   │   ├── vio_perception/     # VIO perception pipeline
 │   │   ├── vio_mavlink_bridge/ # MAVLink VIO bridge
 │   │   └── vio_bringup/        # Launch configurations
@@ -83,6 +85,29 @@ ros2 launch vio_bringup vio_sitl_mavros.launch.py
 - `/oak_d_lite/depth/image_raw` - Depth image
 - `/oak_d_lite/depth/points` - Depth point cloud
 - `/tf` - Transform frames
+
+### RTAB-Map SLAM (3D Mapping)
+```bash
+# Launch x500_depth simulation with RTAB-Map SLAM
+# This includes Gazebo simulation, RTAB-Map, and RViz visualization
+ros2 launch rtabmap_slam x500_rtabmap_slam.launch.py
+
+# For localization mode (using existing map)
+ros2 launch rtabmap_slam x500_rtabmap_slam.launch.py localization:=true
+```
+
+RTAB-Map creates 3D point cloud maps and provides:
+- Real-time 3D mapping using depth camera point clouds
+- Visual odometry and pose estimation
+- Loop closure detection for accurate mapping
+- 2D occupancy grid for navigation planning
+
+**Note**: First install RTAB-Map dependencies:
+```bash
+./scripts/install_rtabmap.sh
+```
+
+See [rtabmap_slam/README.md](ros2_ws/src/rtabmap_slam/README.md) for detailed usage.
 
 ### Real Hardware
 ```bash
