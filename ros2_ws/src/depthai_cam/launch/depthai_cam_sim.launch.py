@@ -52,19 +52,6 @@ def generate_launch_description():
         }
     )
 
-    # Launch RViz2 with configuration
-    rviz_config_path = os.path.join(pkg_share, 'config', 'x500_depth.rviz')
-    rviz2 = Node(
-        package='rviz2',
-        executable='rviz2',
-        name='rviz2',
-        output='screen',
-        arguments=['-d', rviz_config_path],
-        parameters=[
-            {'use_sim_time': True},
-        ]
-    )
-
     # Robot State Publisher - publishes robot model transforms from simplified SDF
     # Uses model_description.sdf (not the full Gazebo SDF) which is cleaner for visualization
     # robot_state_publisher handles ALL transforms:
@@ -172,7 +159,6 @@ def generate_launch_description():
         ign_gazebo,
         static_tf_world_odom,
         robot_state_publisher,
-        rviz2,
         ros_gz_bridge,
     ]
     
