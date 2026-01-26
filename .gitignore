@@ -43,6 +43,9 @@ __pycache__/
 *.DS_Store
 *.vscode/
 *.idea/
+# Python virtual environment
+venv/
+.venv/
 
 ############################
 # CMake / Object Files
@@ -59,3 +62,4 @@ __pycache__/
 *.log
 *.tmp
 *.bak
+.ros/

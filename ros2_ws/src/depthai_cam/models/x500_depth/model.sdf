@@ -35,9 +35,11 @@
       <update_rate>30</update_rate>
     </plugin>
 
-    <!-- Odometry Publisher Plugin - Publishes odometry and odom->base_link TF -->
+    <!-- Odometry Publisher Plugin - Publishes odometry and gazebo_odom->base_link TF -->
+    <!-- Note: Frame renamed to 'gazebo_odom' to avoid conflicts with RTAB-Map's 'odom' frame -->
+    <!-- RTAB-Map publishes map->odom (visual SLAM), Gazebo publishes gazebo_odom->base_link (simulation odometry) -->
     <plugin filename="gz-sim-odometry-publisher-system" name="gz::sim::systems::OdometryPublisher">
-      <odom_frame>odom</odom_frame>
+      <odom_frame>gazebo_odom</odom_frame>
       <robot_base_frame>base_link</robot_base_frame>
       <publish_odom_tf>true</publish_odom_tf>
       <odom_publish_frequency>30</odom_publish_frequency>

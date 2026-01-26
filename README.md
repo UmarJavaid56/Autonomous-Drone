@@ -20,6 +20,7 @@ This will:
 - Install ROS 2 Jazzy
 - Install Gazebo Harmonic
 - Install all dependencies
+- Create a Python virtual environment (`.venv/` in project root)
 - Build the workspace
 
 ### Manual Setup (Alternative)
@@ -90,10 +91,10 @@ ros2 launch vio_bringup vio_sitl_mavros.launch.py
 ```bash
 # Launch x500_depth simulation with RTAB-Map SLAM
 # This includes Gazebo simulation, RTAB-Map, and RViz visualization
-ros2 launch rtabmap_slam x500_rtabmap_slam.launch.py
+ros2 launch x500_rtabmap_slam x500_rtabmap_slam.launch.py
 
 # For localization mode (using existing map)
-ros2 launch rtabmap_slam x500_rtabmap_slam.launch.py localization:=true
+ros2 launch x500_rtabmap_slam x500_rtabmap_slam.launch.py localization:=true
 ```
 
 RTAB-Map creates 3D point cloud maps and provides:
@@ -102,9 +103,9 @@ RTAB-Map creates 3D point cloud maps and provides:
 - Loop closure detection for accurate mapping
 - 2D occupancy grid for navigation planning
 
-**Note**: First install RTAB-Map dependencies:
+**Note**: RTAB-Map and its ROS 2 packages are installed as part of the main dependency script:
 ```bash
-./scripts/install_rtabmap.sh
+./scripts/install_dependencies.sh
 ```
 
 See [rtabmap_slam/README.md](ros2_ws/src/rtabmap_slam/README.md) for detailed usage and [RTAB-Map Quick Start](doc/RTABMAP_QUICKSTART.md) for step-by-step guide.
@@ -117,8 +118,34 @@ ros2 launch vio_bringup vio_oakd_orbslam3.launch.py
 
 ## 🔧 Development
 
+### Python Virtual Environment
+
+This project uses a Python virtual environment to ensure compatibility across different machines and avoid system Python conflicts. The venv is created in the project root (`.venv/`) and is portable - it works when the repo is cloned to any machine.
+
+**Setup venv manually:**
+```bash
+./scripts/setup_venv.sh
+```
+
+**Activate venv and workspace:**
+```bash
+# Option 1: Use the workspace setup script (recommended)
+source ros2_ws/setup.sh
+
+# Option 2: Manual activation
+source .venv/bin/activate
+source ros2_ws/install/setup.bash
+```
+
+The `ros2_ws/setup.sh` script automatically activates the venv and sources the workspace, making it easy to get started.
+
 ### Building
 ```bash
+# The setup_workspace.sh script automatically uses the venv
+./scripts/setup_workspace.sh
+
+# Or manually with venv activated
+source .venv/bin/activate
 cd ros2_ws
 colcon build --symlink-install
 source install/setup.bash
@@ -195,6 +222,27 @@ gz sim --version  # should now work
 ```
 
 **Note**: This is automatically configured in ROS 2 launch files via `depthai_cam_sim.launch.py`, so you don't need to set it manually when launching through ROS 2.
+
+### Python Setuptools Compatibility Issues
+
+**Problem**: Build fails with "AttributeError: module 'pkgutil' has no attribute 'ImpImporter'"
+
+**Cause**: Python 3.12 removed `pkgutil.ImpImporter`, but older setuptools versions still reference it.
+
+**Solution**: The setup scripts automatically create a Python virtual environment with updated setuptools. If you encounter this issue:
+
+1. Ensure the venv is created and activated:
+   ```bash
+   ./scripts/setup_venv.sh
+   source .venv/bin/activate
+   ```
+
+2. Rebuild the workspace:
+   ```bash
+   ./scripts/setup_workspace.sh
+   ```
+
+The venv ensures compatibility across different Python versions and system configurations.
 
 ### ROS 2 Shell Completion Warnings
 

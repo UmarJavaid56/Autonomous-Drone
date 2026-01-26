@@ -19,7 +19,9 @@ Velocity Control:
 import os
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
-from launch.actions import ExecuteProcess, SetEnvironmentVariable, TimerAction
+from launch.actions import DeclareLaunchArgument, ExecuteProcess, SetEnvironmentVariable, TimerAction
+from launch.conditions import IfCondition
+from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
 
 
@@ -28,6 +30,9 @@ def generate_launch_description():
     pkg_share = get_package_share_directory('depthai_cam')
     world_path = os.path.join(pkg_share, 'worlds', 'depthai_test.world')
     robot_description_path = os.path.join(pkg_share, 'models', 'x500_depth', 'model_description.urdf')
+    
+    # Launch arguments
+    use_sim_time = LaunchConfiguration('use_sim_time')
 
 
     # Ensure Gazebo can find default models (ground_plane, sun), our models, and PX4 models
@@ -66,18 +71,22 @@ def generate_launch_description():
         output='screen',
         parameters=[
             {'robot_description': robot_description},
-            {'use_sim_time': True},
+            {'use_sim_time': use_sim_time},
         ]
     )
 
-    # Static TF for world -> odom (identity transform)
-    static_tf_world_odom = Node(
+    # Static TF for world -> gazebo_odom (identity transform)
+    # Gazebo publishes gazebo_odom->base_link, so we need world->gazebo_odom for standalone operation
+    # Transform chain:
+    # - Standalone: world -> gazebo_odom (static) -> base_link (Gazebo OdometryPublisher)
+    # - With RTAB-Map: world -> map (RTAB-Map launch) -> odom (RTAB-Map) -> base_link (RTAB-Map also publishes this)
+    static_tf_world_gazebo_odom = Node(
         package='tf2_ros',
         executable='static_transform_publisher',
-        name='static_tf_world_odom',
-        arguments=['--frame-id', 'world', '--child-frame-id', 'odom'],
+        name='static_tf_world_gazebo_odom',
+        arguments=['--frame-id', 'world', '--child-frame-id', 'gazebo_odom'],
         output='screen',
-        parameters=[{'use_sim_time': True}],
+        parameters=[{'use_sim_time': use_sim_time}],
     )
 
     # Note: odom->base_link TF is published by the OdometryPublisher plugin in model.sdf
@@ -150,16 +159,35 @@ def generate_launch_description():
         output='screen',
         arguments=bridge_args,
         parameters=[
-            {'use_sim_time': True},
+            {'use_sim_time': use_sim_time},
         ]
     )
 
-    launch_items = [
+    # RViz2 visualization (commented out by default)
+    # Uncomment to enable RViz visualization when running standalone
+    # rviz_config_path = os.path.join(pkg_share, 'config', 'x500_depth.rviz')
+    # rviz2_node = Node(
+    #     package='rviz2',
+    #     executable='rviz2',
+    #     name='rviz2',
+    #     output='screen',
+    #     arguments=['-d', rviz_config_path],
+    #     parameters=[{'use_sim_time': use_sim_time}],
+    # )
+
+    return LaunchDescription([
+        # Launch arguments
+        DeclareLaunchArgument(
+            'use_sim_time',
+            default_value='true',
+            description='Use simulation time'
+        ),
+        
+        # Environment and processes
         SetEnvironmentVariable('GZ_SIM_RESOURCE_PATH', ign_resource_path),
         ign_gazebo,
-        static_tf_world_odom,
         robot_state_publisher,
+        static_tf_world_gazebo_odom,
         ros_gz_bridge,
-    ]
-    
-    return LaunchDescription(launch_items)
+        # rviz2_node,  # Uncomment to enable RViz
+    ])

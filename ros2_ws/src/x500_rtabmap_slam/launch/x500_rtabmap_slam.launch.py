@@ -33,10 +33,13 @@ def generate_launch_description():
     localization = LaunchConfiguration('localization')
     
     # Include x500_depth simulation launch file
+    # Gazebo now publishes gazebo_odom->base_link (no conflict with RTAB-Map's odom frame)
+    # RTAB-Map publishes: map->odom and odom->base_link (visual SLAM)
     simulation_launch = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
             os.path.join(depthai_cam_dir, 'launch', 'depthai_cam_sim.launch.py')
         ),
+        launch_arguments={'use_sim_time': use_sim_time}.items(),
     )
     
     # RTAB-Map parameters optimized for drone navigation
@@ -128,6 +131,8 @@ def generate_launch_description():
             ('rgb/camera_info', '/oak_d_lite/rgb/camera_info'),
             ('depth/image', '/oak_d_lite/depth/image_raw'),
             ('scan_cloud', '/oak_d_lite/depth/points'),
+            ('grid_map', '/map'),  # Remap to standard /map topic
+            ('grid_map_updates', '/map_updates'),  # Remap to standard /map_updates topic
         ],
         arguments=['--delete_db_on_start'],
     )
@@ -162,6 +167,32 @@ def generate_launch_description():
         ],
     )
     
+    # Static transform: world -> map (identity initially)
+    # RTAB-Map with publish_tf=True publishes map->odom (visual SLAM)
+    # Transform chain: world -> map (static) -> odom (RTAB-Map) -> gazebo_odom (static identity) -> base_link (Gazebo)
+    # Note: RTAB-Map typically only publishes map->odom, not odom->base_link
+    # We bridge odom->gazebo_odom (identity) to use Gazebo's gazebo_odom->base_link
+    static_tf_world_map = Node(
+        package='tf2_ros',
+        executable='static_transform_publisher',
+        name='static_tf_world_map',
+        arguments=['0', '0', '0', '0', '0', '0', 'world', 'map'],
+        output='screen',
+        parameters=[{'use_sim_time': use_sim_time}],
+    )
+    
+    # Static transform: odom -> gazebo_odom (identity)
+    # This bridges RTAB-Map's odom frame to Gazebo's gazebo_odom frame
+    # Complete chain: map -> odom (RTAB-Map) -> gazebo_odom (static) -> base_link (Gazebo)
+    static_tf_odom_gazebo_odom = Node(
+        package='tf2_ros',
+        executable='static_transform_publisher',
+        name='static_tf_odom_gazebo_odom',
+        arguments=['0', '0', '0', '0', '0', '0', 'odom', 'gazebo_odom'],
+        output='screen',
+        parameters=[{'use_sim_time': use_sim_time}],
+    )
+    
     return LaunchDescription([
         # Launch arguments
         DeclareLaunchArgument(
@@ -188,5 +219,7 @@ def generate_launch_description():
         
         # Launch utilities
         map_server_node,
+        static_tf_world_map,
+        static_tf_odom_gazebo_odom,
         rviz2_node,
     ])
