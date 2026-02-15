@@ -155,17 +155,9 @@ RTAB-Map outputs can be used with ROS 2 Navigation Stack (Nav2):
 - Map updates: On new node creation (based on movement thresholds)
 - Loop closure: When revisiting areas
 
-## Comparison with ORB-SLAM3
+## Comparison with Other SLAM Systems
 
-| Feature | ORB-SLAM3 | RTAB-Map |
-|---------|-----------|----------|
-| Input | Monocular/Stereo RGB | RGB-D |
-| Map Type | Sparse feature map | Dense point cloud |
-| Output | Camera poses | Poses + 3D map + occupancy grid |
-| Loop Closure | Yes | Yes |
-| Navigation | Requires separate mapping | Built-in occupancy grid |
-| CPU Usage | Lower | Higher |
-| Use Case | Visual odometry | Full SLAM with mapping |
+RTAB-Map provides dense 3D point cloud maps and occupancy grids from RGB-D input, suitable for indoor drone navigation and 3D path planning. Other approaches (e.g. sparse visual odometry) would require a separate mapping pipeline.
 
 ## Troubleshooting
 

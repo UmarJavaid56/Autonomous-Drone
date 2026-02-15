@@ -1,0 +1,19 @@
+# ESDF server parameters (OctoMap fallback backend)
+# Input: PointCloud2 from RTAB-Map or depth camera; output: GetDistance service
+
+esdf_server:
+  ros__parameters:
+    point_cloud_topic: "/oak_d_lite/depth/points"
+    map_frame_id: "map"
+    voxel_size: 0.05   # 5 cm voxels (balance accuracy and memory)
+    max_range: 5.0
+    min_range: 0.4
+    # Indoor map bounds (finite)
+    x_min: -10.0
+    x_max: 10.0
+    y_min: -10.0
+    y_max: 10.0
+    z_min: -0.5
+    z_max: 3.0
+    publish_esdf_slice: true
+    esdf_slice_height: 0.0

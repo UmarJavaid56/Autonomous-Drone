@@ -1,6 +1,6 @@
 # Autonomous-Drone
 
-A ROS 2-based autonomous drone system with OAK-D camera integration, ORB-SLAM3 visual odometry, RTAB-Map SLAM, and Gazebo simulation.
+A ROS 2-based autonomous drone system with OAK-D camera integration, RTAB-Map SLAM (3D mapping), and Gazebo simulation.
 
 ## 🚀 Quick Start
 
@@ -43,8 +43,7 @@ source /opt/ros/jazzy/setup.bash
 - **ROS 2 Jazzy**: Latest LTS robotics framework
 - **Gazebo Harmonic**: Modern simulation with Ogre2 rendering
 - **OAK-D Camera**: DepthAI-powered stereo vision
-- **ORB-SLAM3**: Real-time visual SLAM
-- **RTAB-Map**: RGB-D SLAM for 3D mapping with point clouds
+- **RTAB-Map**: RGB-D SLAM for 3D mapping with point clouds and visual odometry
 - **PX4 Integration**: MAVLink-based flight control
 
 ## 📁 Project Structure
@@ -54,12 +53,11 @@ Autonomous-Drone/
 ├── ros2_ws/                    # ROS 2 workspace
 │   ├── src/
 │   │   ├── depthai_cam/        # OAK-D camera ROS 2 driver
-│   │   ├── orbslam3_bridge/    # ORB-SLAM3 ROS 2 bridge
-│   │   ├── rtabmap_slam/       # RTAB-Map SLAM integration
+│   │   ├── x500_rtabmap_slam/   # RTAB-Map SLAM + autonomy launch
 │   │   ├── vio_perception/     # VIO perception pipeline
 │   │   ├── vio_mavlink_bridge/ # MAVLink VIO bridge
 │   │   └── vio_bringup/        # Launch configurations
-│   └── external/               # External dependencies (ORB-SLAM3)
+│   └── ...
 ├── scripts/                    # Setup and utility scripts
 ├── config/                     # Configuration files
 ├── doc/                        # Documentation
@@ -74,10 +72,7 @@ Autonomous-Drone/
 # Includes ROS 2 - Gazebo bridges for camera topics
 ros2 launch depthai_cam depthai_cam_sim.launch.py
 
-# Terminal 2: Launch ORB-SLAM3 with camera feed
-ros2 launch vio_bringup vio_oakd_orbslam3.launch.py
-
-# Terminal 3: Launch MAVROS SITL integration
+# Terminal 2: Launch MAVROS SITL (subscribes to vision pose, e.g. from RTAB-Map adapter)
 ros2 launch vio_bringup vio_sitl_mavros.launch.py
 ```
 
@@ -108,12 +103,13 @@ RTAB-Map creates 3D point cloud maps and provides:
 ./scripts/install_dependencies.sh
 ```
 
-See [rtabmap_slam/README.md](ros2_ws/src/rtabmap_slam/README.md) for detailed usage and [RTAB-Map Quick Start](doc/RTABMAP_QUICKSTART.md) for step-by-step guide.
+See [x500_rtabmap_slam/README.md](ros2_ws/src/x500_rtabmap_slam/README.md) for detailed usage and [RTAB-Map Quick Start](doc/RTABMAP_QUICKSTART.md) for step-by-step guide.
 
 ### Real Hardware
 ```bash
-# Connect OAK-D camera and launch real-time VIO
-ros2 launch vio_bringup vio_oakd_orbslam3.launch.py
+# Connect OAK-D and run RTAB-Map SLAM; use vio_sitl_mavros with pose_topic pointing to your vision pose
+ros2 launch x500_rtabmap_slam x500_rtabmap_slam.launch.py
+ros2 launch vio_bringup vio_sitl_mavros.launch.py pose_topic:=/vision_pose/pose
 ```
 
 ## 🔧 Development
@@ -278,4 +274,4 @@ This project is licensed under the BSD-3-Clause License - see the package.xml fi
 - [ROS 2](https://docs.ros.org/en/jazzy/)
 - [Gazebo Sim](https://gazebosim.org/docs/harmonic/)
 - [DepthAI](https://docs.luxonis.com/)
-- [ORB-SLAM3](https://github.com/UZ-SLAMLab/ORB_SLAM3)
+- [RTAB-Map](https://github.com/introlab/rtabmap)

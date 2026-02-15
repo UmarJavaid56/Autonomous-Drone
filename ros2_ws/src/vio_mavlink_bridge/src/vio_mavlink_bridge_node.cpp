@@ -13,7 +13,7 @@ public:
         // Declare a parameter for the pose topic, with a default
         pose_topic_ = this->declare_parameter<std::string>(
             "pose_topic",
-            "/orbslam3/pose"   // <-- change this default if needed
+            "/vision_pose/pose"   // PoseStamped from RTAB-Map adapter or other VIO
         );
 
         RCLCPP_INFO(this->get_logger(),

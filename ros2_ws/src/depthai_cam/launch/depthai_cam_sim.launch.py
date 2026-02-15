@@ -77,9 +77,6 @@ def generate_launch_description():
 
     # Static TF for world -> gazebo_odom (identity transform)
     # Gazebo publishes gazebo_odom->base_link, so we need world->gazebo_odom for standalone operation
-    # Transform chain:
-    # - Standalone: world -> gazebo_odom (static) -> base_link (Gazebo OdometryPublisher)
-    # - With RTAB-Map: world -> map (RTAB-Map launch) -> odom (RTAB-Map) -> base_link (RTAB-Map also publishes this)
     static_tf_world_gazebo_odom = Node(
         package='tf2_ros',
         executable='static_transform_publisher',
@@ -88,10 +85,6 @@ def generate_launch_description():
         output='screen',
         parameters=[{'use_sim_time': use_sim_time}],
     )
-
-    # Note: odom->base_link TF is published by the OdometryPublisher plugin in model.sdf
-    # and bridged via the /tf topic bridge below
-
 
     # Bridges for TF and OakD-Lite camera topics (RGB + Depth + CameraInfo + PointCloud)
     # Ignition topic roots
@@ -105,7 +98,7 @@ def generate_launch_description():
         # Bridge simulation clock to /clock so ROS nodes can use sim time
         f'/clock@rosgraph_msgs/msg/Clock[gz.msgs.Clock',
         
-        # Bridge TF transforms from Gazebo (odom->base_link published by OdometryPublisher)
+        # Bridge TF transforms from Gazebo (gazebo_odom->base_link published by OdometryPublisher)
         f'/tf@tf2_msgs/msg/TFMessage[gz.msgs.Pose_V',
         
         # Model pose - Gazebo publishes Pose_V (vector of poses) -> PoseArray (for debugging)

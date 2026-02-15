@@ -26,7 +26,7 @@ from geometry_msgs.msg import PoseStamped
 
 
 class NEDPosePublisher(Node):
-    def __init__(self, trajectory_type=None, csv_file=None, static_pose=None, topic='/orbslam3/pose', rate=30.0):
+    def __init__(self, trajectory_type=None, csv_file=None, static_pose=None, topic='/vision_pose/pose', rate=30.0):
         super().__init__('ned_pose_publisher')
         
         self.topic = topic
@@ -170,8 +170,8 @@ def main(args=None):
     parser.add_argument('--x', type=float, help='Static X position (NED frame)')
     parser.add_argument('--y', type=float, help='Static Y position (NED frame)')
     parser.add_argument('--z', type=float, help='Static Z position (NED frame, negative = down)')
-    parser.add_argument('--topic', type=str, default='/orbslam3/pose',
-                       help='Topic to publish to (default: /orbslam3/pose)')
+    parser.add_argument('--topic', type=str, default='/vision_pose/pose',
+                       help='Topic to publish to (default: /vision_pose/pose)')
     parser.add_argument('--rate', type=float, default=30.0,
                        help='Publishing rate in Hz (default: 30.0)')
     

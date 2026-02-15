@@ -17,15 +17,6 @@ log/
 *.egg-info/
 
 ############################
-# ORB-SLAM3 Ignore
-############################
-ros2_ws/src/external/ORB_SLAM3/build/
-ros2_ws/src/external/ORB_SLAM3/lib/
-ros2_ws/src/external/ORB_SLAM3/CMakeCache.txt
-ros2_ws/src/external/ORB_SLAM3/CMakeFiles/
-ros2_ws/src/external/ORB_SLAM3/ORBvoc.txt
-
-############################
 # Pangolin Ignore
 ############################
 Pangolin/build/

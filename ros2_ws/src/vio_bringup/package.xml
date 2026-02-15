@@ -3,7 +3,7 @@
 <package format="3">
   <name>vio_bringup</name>
   <version>0.0.0</version>
-  <description>VIO bringup package containing launch files for DepthAI + ORB-SLAM3.</description>
+  <description>VIO bringup package: launch files for vision pose (RTAB-Map) and MAVROS SITL.</description>
   <maintainer email="shraypatel@gmail.com">group7</maintainer>
   <license>TODO: License declaration</license>
 
@@ -17,7 +17,6 @@
   <exec_depend>launch</exec_depend>
   <exec_depend>launch_ros</exec_depend>
   <exec_depend>depthai_cam</exec_depend>
-  <exec_depend>orbslam3_bridge</exec_depend>
 
   <!-- Test deps -->
   <test_depend>ament_lint_auto</test_depend>

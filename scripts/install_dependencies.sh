@@ -107,6 +107,12 @@ $SUDO apt install -y \
 
 echo "RTAB-Map ROS packages installed"
 
+# OMPL for RRT* 3D path planning (autonomy stack)
+echo "Installing OMPL for RRT* planner..."
+$SUDO apt install -y libompl-dev
+
+echo "OMPL installed"
+
 # Install ROS 2 Gazebo bridges and tools
 echo "Installing ROS 2 Gazebo bridge and tools..."
 $SUDO apt install -y \
@@ -189,6 +195,8 @@ pip install --upgrade pip setuptools wheel
 # Install project-specific packages if needed
 # pip install depthai==3.3.0
 pip install argcomplete
+# For colcon build (rosidl, etc.) when using venv Python
+pip install numpy lark
 deactivate
 
 echo "Python packages installed in virtual environment"

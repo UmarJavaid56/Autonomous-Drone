@@ -1,0 +1,10 @@
+# ESDF distance query (generic interface for NVBlox / Voxblox / OctoMap backends).
+# Query point in map frame.
+float64 x
+float64 y
+float64 z
+---
+# Signed distance to nearest obstacle (positive = free, negative = inside obstacle).
+# For collision checking: valid and (distance > drone_radius + safety_margin).
+float64 distance
+bool valid   # false if point is outside map bounds or map not ready

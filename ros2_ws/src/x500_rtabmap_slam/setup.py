@@ -25,6 +25,7 @@ setup(
     tests_require=['pytest'],
     entry_points={
         'console_scripts': [
+            'goal_from_rviz_node = rtabmap_slam.goal_from_rviz:main',
         ],
     },
 )
