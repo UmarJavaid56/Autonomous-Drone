@@ -147,7 +147,11 @@ public:
     tree_pub_ = create_publisher<visualization_msgs::msg::MarkerArray>("rrt_tree", 10);
     path_marker_pub_ = create_publisher<visualization_msgs::msg::MarkerArray>("path_markers", 10);
     planning_active_pub_ = create_publisher<std_msgs::msg::Bool>("planning_active", 10);
-    esdf_client_ = create_client<esdf_msgs::srv::GetDistance>("get_distance");
+
+    // Service client in a ReentrantCallbackGroup so the executor's second thread
+    // can process service responses while the timer callback thread is blocked in solve().
+    srv_cb_group_ = create_callback_group(rclcpp::CallbackGroupType::Reentrant);
+    esdf_client_ = create_client<esdf_msgs::srv::GetDistance>("get_distance", rclcpp::ServicesQoS(), srv_cb_group_);
 
     replan_timer_ = create_wall_timer(
       std::chrono::duration<double>(1.0 / replan_rate_),
@@ -391,6 +395,7 @@ private:
   rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr tree_pub_;
   rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr path_marker_pub_;
   rclcpp::Publisher<std_msgs::msg::Bool>::SharedPtr planning_active_pub_;
+  rclcpp::CallbackGroup::SharedPtr srv_cb_group_;
   rclcpp::Client<esdf_msgs::srv::GetDistance>::SharedPtr esdf_client_;
   rclcpp::TimerBase::SharedPtr replan_timer_;
 

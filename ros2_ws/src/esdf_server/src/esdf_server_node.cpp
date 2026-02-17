@@ -13,6 +13,7 @@
 #include <vector>
 
 #include <rclcpp/rclcpp.hpp>
+#include <rclcpp/executors.hpp>
 #include <sensor_msgs/msg/point_cloud2.hpp>
 #include <tf2_ros/buffer.h>
 #include <tf2_ros/transform_listener.h>
@@ -76,9 +77,13 @@ public:
     esdf_slice_thickness_ = get_parameter("esdf_slice_thickness").as_double();
     accumulate_map_ = get_parameter("accumulate_map").as_bool();
 
+    // Service in a reentrant callback group so it can run concurrently with cloud processing
+    srv_cb_group_ = create_callback_group(rclcpp::CallbackGroupType::Reentrant);
     get_distance_srv_ = create_service<esdf_msgs::srv::GetDistance>(
       "get_distance",
-      std::bind(&EsdfServerNode::handleGetDistance, this, std::placeholders::_1, std::placeholders::_2));
+      std::bind(&EsdfServerNode::handleGetDistance, this, std::placeholders::_1, std::placeholders::_2),
+      rclcpp::ServicesQoS(),
+      srv_cb_group_);
 
     cloud_sub_ = create_subscription<sensor_msgs::msg::PointCloud2>(
       point_cloud_topic_, 10, std::bind(&EsdfServerNode::cloudCallback, this, std::placeholders::_1));
@@ -239,6 +244,7 @@ private:
 
   tf2_ros::Buffer tf_buffer_;
   tf2_ros::TransformListener tf_listener_;
+  rclcpp::CallbackGroup::SharedPtr srv_cb_group_;
   rclcpp::Subscription<sensor_msgs::msg::PointCloud2>::SharedPtr cloud_sub_;
   rclcpp::Service<esdf_msgs::srv::GetDistance>::SharedPtr get_distance_srv_;
   rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr esdf_slice_pub_;
@@ -254,7 +260,12 @@ private:
 int main(int argc, char * argv[])
 {
   rclcpp::init(argc, argv);
-  rclcpp::spin(std::make_shared<esdf_server::EsdfServerNode>());
+  auto node = std::make_shared<esdf_server::EsdfServerNode>();
+  // Multi-threaded executor so service requests can be handled while point cloud
+  // processing is in progress (prevents service timeouts from the RRT* planner).
+  rclcpp::executors::MultiThreadedExecutor executor(rclcpp::ExecutorOptions(), 2);
+  executor.add_node(node);
+  executor.spin();
   rclcpp::shutdown();
   return 0;
 }

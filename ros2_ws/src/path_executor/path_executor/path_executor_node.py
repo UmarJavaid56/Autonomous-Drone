@@ -99,10 +99,32 @@ class PathExecutorNode(Node):
             self.current_path = None
             self.waypoint_index = 0
             return
+
+        # On replan: find the closest waypoint to current position so the drone
+        # doesn't jump back to waypoint 0 (which is the start == current pos).
+        # Skip waypoints the drone has already passed.
+        new_start_idx = 1  # skip waypoint 0 (== drone position) by default
+        if self.last_pose is not None and len(msg.poses) > 2:
+            cx, cy, cz = self.last_pose[0], self.last_pose[1], self.last_pose[2]
+            best_idx = 1
+            best_dist = float("inf")
+            for i in range(1, len(msg.poses)):
+                p = msg.poses[i].pose.position
+                d = math.sqrt(
+                    (p.x - cx) ** 2 + (p.y - cy) ** 2 + (p.z - cz) ** 2
+                )
+                if d < best_dist:
+                    best_dist = d
+                    best_idx = i
+            # Advance past the closest waypoint if we're already within tolerance
+            if best_dist < self.waypoint_tolerance and best_idx + 1 < len(msg.poses):
+                new_start_idx = best_idx + 1
+            else:
+                new_start_idx = best_idx
+
         self.current_path = msg
         self.path_received = True
-        # Optionally reset waypoint index when path is updated (replan)
-        self.waypoint_index = 0
+        self.waypoint_index = min(new_start_idx, len(msg.poses) - 1)
 
     def planning_active_callback(self, msg: Bool):
         self.planning_active = msg.data
@@ -155,16 +177,9 @@ class PathExecutorNode(Node):
             self.enable_pub.publish(enable)
             return
 
-        if self.planning_active:
-            # Hover while planner is running
-            twist.linear.x = 0.0
-            twist.linear.y = 0.0
-            twist.linear.z = 0.0
-            twist.angular.z = 0.0
-            enable.data = True
-            self.cmd_vel_pub.publish(twist)
-            self.enable_pub.publish(enable)
-            return
+        # Follow the latest path even while planner is recomputing; the planner
+        # replans continuously (2 Hz) so gating on planning_active would block
+        # execution permanently.
 
         pose = self.get_current_pose()
         if pose is None:
@@ -231,6 +246,21 @@ class PathExecutorNode(Node):
         enable.data = True
         self.cmd_vel_pub.publish(twist)
         self.enable_pub.publish(enable)
+
+        self.get_logger().info(
+            "wp %d/%d dist=%.2f cmd=(%.2f,%.2f,%.2f) pos=(%.2f,%.2f,%.2f) tgt=(%.2f,%.2f,%.2f)"
+            % (
+                self.waypoint_index,
+                len(self.current_path.poses),
+                dist,
+                twist.linear.x,
+                twist.linear.y,
+                twist.linear.z,
+                x, y, z,
+                tx, ty, tz,
+            ),
+            throttle_duration_sec=2.0,
+        )
 
 
 def main(args=None):

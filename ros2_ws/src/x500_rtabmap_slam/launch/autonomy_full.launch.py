@@ -125,7 +125,7 @@ def generate_launch_description():
         remappings=[("get_distance", "get_distance")],
     )
 
-    # 4) RRT* planner (goal_pose -> path)
+    # 4) RRT* planner (goal_pose_planned -> path)
     rrt_node = Node(
         package="rrt_star_planner",
         executable="rrt_star_planner_node",
@@ -140,6 +140,9 @@ def generate_launch_description():
             {"replan_rate": 2.0},
             {"max_planning_time": 0.5},
             {"goal_bias": 0.15},
+        ],
+        remappings=[
+            ("goal_pose", "/goal_pose_planned"),
         ],
     )
 
@@ -159,7 +162,7 @@ def generate_launch_description():
         ],
     )
 
-    # 5) Goal from RViz: click a 3D point -> /goal_pose (for RRT* planner)
+    # 6) Goal from RViz: /goal_pose (input) -> /goal_pose_planned (output, z-corrected)
     goal_from_rviz_node = Node(
         package="x500_rtabmap_slam",
         executable="goal_from_rviz_node",
