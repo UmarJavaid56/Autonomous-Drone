@@ -33,10 +33,17 @@ ament_target_dependencies(esdf_server_node
   visualization_msgs
   pcl_conversions
 )
-
 target_link_libraries(esdf_server_node ${PCL_LIBRARIES})
 
-install(TARGETS esdf_server_node
+add_executable(point_cloud_filter_node src/point_cloud_filter_node.cpp)
+ament_target_dependencies(point_cloud_filter_node
+  rclcpp
+  sensor_msgs
+  pcl_conversions
+)
+target_link_libraries(point_cloud_filter_node ${PCL_LIBRARIES})
+
+install(TARGETS esdf_server_node point_cloud_filter_node
   DESTINATION lib/${PROJECT_NAME}
 )
 

@@ -83,6 +83,7 @@ class KeyboardTeleopNode(Node):
         self.declare_parameter('angular_speed', 1.0)
         self.declare_parameter('cmd_vel_topic', '/x500_depth/cmd_vel')
         self.declare_parameter('enable_topic', '/x500_depth/enable')
+        self.declare_parameter('manual_override_topic', '/x500_depth/teleop_active')
         self.declare_parameter('publish_rate', 20.0)
 
         # Get parameter values
@@ -90,11 +91,13 @@ class KeyboardTeleopNode(Node):
         self.angular_speed = self.get_parameter('angular_speed').value
         cmd_vel_topic = self.get_parameter('cmd_vel_topic').value
         enable_topic = self.get_parameter('enable_topic').value
+        manual_override_topic = self.get_parameter('manual_override_topic').value
         publish_rate = self.get_parameter('publish_rate').value
 
         # Publishers
         self.cmd_vel_pub = self.create_publisher(Twist, cmd_vel_topic, 10)
         self.enable_pub = self.create_publisher(Bool, enable_topic, 10)
+        self.manual_override_pub = self.create_publisher(Bool, manual_override_topic, 10)
 
         # Timer for continuous publishing
         self.timer = self.create_timer(1.0 / publish_rate, self.timer_callback)
@@ -113,6 +116,7 @@ class KeyboardTeleopNode(Node):
 
         self.get_logger().info(f'Publishing velocity to: {cmd_vel_topic}')
         self.get_logger().info(f'Enable topic: {enable_topic}')
+        self.get_logger().info(f'Manual override topic: {manual_override_topic}')
 
     def get_key(self, timeout: float = 0.1) -> str:
         """Read a single keypress from stdin with timeout."""
@@ -122,6 +126,8 @@ class KeyboardTeleopNode(Node):
 
     def timer_callback(self):
         """Publish current velocity state."""
+        if not self.enabled:
+            return
         twist = Twist()
         twist.linear.x = self.linear_x * self.linear_speed
         twist.linear.y = self.linear_y * self.linear_speed
@@ -135,6 +141,15 @@ class KeyboardTeleopNode(Node):
         msg = Bool()
         msg.data = self.enabled
         self.enable_pub.publish(msg)
+        override_msg = Bool()
+        override_msg.data = self.enabled
+        self.manual_override_pub.publish(override_msg)
+        if not self.enabled:
+            self.linear_x = 0.0
+            self.linear_y = 0.0
+            self.linear_z = 0.0
+            self.angular_z = 0.0
+            self.timer_callback()
         status = "ENABLED" if self.enabled else "DISABLED"
         self.get_logger().info(f'Controller {status}')
 
@@ -217,6 +232,12 @@ class KeyboardTeleopNode(Node):
             self.linear_z = 0.0
             self.angular_z = 0.0
             self.timer_callback()  # Publish stop command
+
+            # Disable controller and manual override
+            disable_msg = Bool()
+            disable_msg.data = False
+            self.enable_pub.publish(disable_msg)
+            self.manual_override_pub.publish(disable_msg)
 
             # Restore terminal settings
             if self.settings is not None:

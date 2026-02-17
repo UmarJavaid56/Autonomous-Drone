@@ -41,19 +41,25 @@ class PathExecutorNode(Node):
         self.declare_parameter("path_topic", "path")
         self.declare_parameter("cmd_vel_topic", "/x500_depth/cmd_vel")
         self.declare_parameter("enable_topic", "/x500_depth/enable")
+        self.declare_parameter("manual_override_topic", "/x500_depth/teleop_active")
         self.declare_parameter("waypoint_tolerance", 0.25)
         self.declare_parameter("max_linear_speed", 0.8)
         self.declare_parameter("max_angular_speed", 0.5)
         self.declare_parameter("control_rate", 20.0)
+        self.declare_parameter("hover_on_no_path", True)
+        self.declare_parameter("airborne_height", 0.15)
 
         self.map_frame_id = self.get_parameter("map_frame_id").value
         self.base_frame_id = self.get_parameter("base_frame_id").value
         path_topic = self.get_parameter("path_topic").value
         cmd_vel_topic = self.get_parameter("cmd_vel_topic").value
         enable_topic = self.get_parameter("enable_topic").value
+        manual_override_topic = self.get_parameter("manual_override_topic").value
         self.waypoint_tolerance = self.get_parameter("waypoint_tolerance").value
         self.max_linear_speed = self.get_parameter("max_linear_speed").value
         self.max_angular_speed = self.get_parameter("max_angular_speed").value
+        self.hover_on_no_path = self.get_parameter("hover_on_no_path").value
+        self.airborne_height = self.get_parameter("airborne_height").value
         control_rate = self.get_parameter("control_rate").value
 
         self.tf_buffer = Buffer()
@@ -65,6 +71,9 @@ class PathExecutorNode(Node):
         self.planning_active_sub = self.create_subscription(
             Bool, "planning_active", self.planning_active_callback, 10
         )
+        self.manual_override_sub = self.create_subscription(
+            Bool, manual_override_topic, self.manual_override_callback, 10
+        )
         self.cmd_vel_pub = self.create_publisher(Twist, cmd_vel_topic, 10)
         self.enable_pub = self.create_publisher(Bool, enable_topic, 10)
 
@@ -72,13 +81,17 @@ class PathExecutorNode(Node):
         self.waypoint_index = 0
         self.planning_active = False
         self.path_received = False
+        self.manual_override = False
+        self.last_pose: Optional[tuple] = None
 
         self.control_timer = self.create_timer(
             1.0 / control_rate, self.control_callback
         )
 
         self.get_logger().info(
-            f"Path executor: path={path_topic}, cmd_vel={cmd_vel_topic}, enable={enable_topic}"
+            "Path executor: path={}, cmd_vel={}, enable={}, manual_override={}".format(
+                path_topic, cmd_vel_topic, enable_topic, manual_override_topic
+            )
         )
 
     def path_callback(self, msg: Path):
@@ -94,6 +107,9 @@ class PathExecutorNode(Node):
     def planning_active_callback(self, msg: Bool):
         self.planning_active = msg.data
 
+    def manual_override_callback(self, msg: Bool):
+        self.manual_override = msg.data
+
     def get_current_pose(self) -> Optional[tuple]:
         try:
             t = self.tf_buffer.lookup_transform(
@@ -107,21 +123,34 @@ class PathExecutorNode(Node):
             z = t.transform.translation.z
             q = t.transform.rotation
             yaw = quaternion_to_yaw(q.x, q.y, q.z, q.w)
-            return (x, y, z, yaw)
+            pose = (x, y, z, yaw)
+            self.last_pose = pose
+            return pose
         except TransformException:
             return None
 
     def control_callback(self):
+        if self.manual_override:
+            return
+
         twist = Twist()
         enable = Bool()
 
-        # Safety: hover if no path or planning in progress with no valid path
+        # Safety: hover if no path (keep controller enabled so drone doesn't drop)
         if self.current_path is None or len(self.current_path.poses) < 2:
             twist.linear.x = 0.0
             twist.linear.y = 0.0
             twist.linear.z = 0.0
             twist.angular.z = 0.0
-            enable.data = False
+            # Only disable when we're clearly on the ground; otherwise hover (enable=True)
+            if (
+                self.hover_on_no_path
+                and self.last_pose is not None
+                and self.last_pose[2] < self.airborne_height
+            ):
+                enable.data = False
+            else:
+                enable.data = True
             self.cmd_vel_pub.publish(twist)
             self.enable_pub.publish(enable)
             return
@@ -143,7 +172,15 @@ class PathExecutorNode(Node):
             twist.linear.y = 0.0
             twist.linear.z = 0.0
             twist.angular.z = 0.0
-            enable.data = False
+            # Keep hover (enable=True) unless clearly on ground; avoids drop on brief TF loss
+            if (
+                self.hover_on_no_path
+                and self.last_pose is not None
+                and self.last_pose[2] < self.airborne_height
+            ):
+                enable.data = False
+            else:
+                enable.data = True
             self.cmd_vel_pub.publish(twist)
             self.enable_pub.publish(enable)
             return

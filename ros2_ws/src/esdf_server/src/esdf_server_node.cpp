@@ -57,6 +57,8 @@ public:
     declare_parameter<double>("z_max", 3.0);
     declare_parameter<bool>("publish_esdf_slice", true);
     declare_parameter<double>("esdf_slice_height", 0.0);
+    declare_parameter<double>("esdf_slice_thickness", 3.0);  // 0 = thin slice at height; >0 = show voxels from height to height+thickness
+    declare_parameter<bool>("accumulate_map", true);  // true = merge new scans into persistent map (for planning); false = live scan only
 
     point_cloud_topic_ = get_parameter("point_cloud_topic").as_string();
     map_frame_id_ = get_parameter("map_frame_id").as_string();
@@ -71,6 +73,8 @@ public:
     z_max_ = get_parameter("z_max").as_double();
     publish_esdf_slice_ = get_parameter("publish_esdf_slice").as_bool();
     esdf_slice_height_ = get_parameter("esdf_slice_height").as_double();
+    esdf_slice_thickness_ = get_parameter("esdf_slice_thickness").as_double();
+    accumulate_map_ = get_parameter("accumulate_map").as_bool();
 
     get_distance_srv_ = create_service<esdf_msgs::srv::GetDistance>(
       "get_distance",
@@ -83,8 +87,8 @@ public:
       esdf_slice_pub_ = create_publisher<visualization_msgs::msg::MarkerArray>("esdf_slice", 1);
     }
 
-    RCLCPP_INFO(get_logger(), "ESDF server (OctoMap fallback): point_cloud=%s, frame=%s, voxel=%.3f",
-      point_cloud_topic_.c_str(), map_frame_id_.c_str(), voxel_size_);
+    RCLCPP_INFO(get_logger(), "ESDF server (OctoMap fallback): point_cloud=%s, frame=%s, voxel=%.3f, accumulate_map=%s",
+      point_cloud_topic_.c_str(), map_frame_id_.c_str(), voxel_size_, accumulate_map_ ? "true" : "false");
   }
 
 private:
@@ -93,22 +97,19 @@ private:
     if (msg->header.frame_id.empty()) {
       return;
     }
-    geometry_msgs::msg::TransformStamped transform;
     try {
-      transform = tf_buffer_.lookupTransform(map_frame_id_, msg->header.frame_id, msg->header.stamp, rclcpp::Duration::from_seconds(0.5));
-    } catch (const tf2::TransformException & ex) {
-      RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 1000, "ESDF: TF lookup failed: %s", ex.what());
-      return;
-    }
+      geometry_msgs::msg::TransformStamped transform = tf_buffer_.lookupTransform(
+        map_frame_id_, msg->header.frame_id, msg->header.stamp, rclcpp::Duration::from_seconds(0.5));
 
-    sensor_msgs::msg::PointCloud2 cloud_transformed_msg;
-    tf2::doTransform(*msg, cloud_transformed_msg, transform);
+      sensor_msgs::msg::PointCloud2 cloud_transformed_msg;
+      tf2::doTransform(*msg, cloud_transformed_msg, transform);
 
-    pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_transformed(new pcl::PointCloud<pcl::PointXYZ>);
-    pcl::fromROSMsg(cloud_transformed_msg, *cloud_transformed);
+      pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_transformed(new pcl::PointCloud<pcl::PointXYZ>);
+      pcl::fromROSMsg(cloud_transformed_msg, *cloud_transformed);
 
     pcl::PointCloud<pcl::PointXYZ>::Ptr filtered(new pcl::PointCloud<pcl::PointXYZ>);
     for (const auto & pt : cloud_transformed->points) {
+      if (!std::isfinite(pt.x) || !std::isfinite(pt.y) || !std::isfinite(pt.z)) continue;
       double d = std::sqrt(pt.x * pt.x + pt.y * pt.y + pt.z * pt.z);
       if (d < min_range_ || d > max_range_) continue;
       if (pt.x < x_min_ || pt.x > x_max_ || pt.y < y_min_ || pt.y > y_max_ || pt.z < z_min_ || pt.z > z_max_) continue;
@@ -127,13 +128,29 @@ private:
 
     {
       std::lock_guard<std::mutex> lock(kdtree_mutex_);
-      obstacle_cloud_ = downsampled;
+      if (accumulate_map_ && obstacle_cloud_ && !obstacle_cloud_->empty()) {
+        pcl::PointCloud<pcl::PointXYZ>::Ptr combined(new pcl::PointCloud<pcl::PointXYZ>);
+        *combined = *obstacle_cloud_ + *downsampled;
+        pcl::VoxelGrid<pcl::PointXYZ> voxel_merge;
+        voxel_merge.setInputCloud(combined);
+        voxel_merge.setLeafSize(voxel_size_, voxel_size_, voxel_size_);
+        pcl::PointCloud<pcl::PointXYZ>::Ptr merged(new pcl::PointCloud<pcl::PointXYZ>);
+        voxel_merge.filter(*merged);
+        obstacle_cloud_ = merged;
+      } else {
+        obstacle_cloud_ = downsampled;
+      }
       kdtree_.setInputCloud(obstacle_cloud_);
       map_ready_ = obstacle_cloud_->size() > 0;
     }
 
     if (publish_esdf_slice_ && esdf_slice_pub_) {
       publishEsdfSlice();
+    }
+    } catch (const tf2::TransformException & ex) {
+      RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 1000, "ESDF: TF lookup failed: %s", ex.what());
+    } catch (const std::exception & ex) {
+      RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 1000, "ESDF: cloud callback error: %s", ex.what());
     }
   }
 
@@ -192,8 +209,11 @@ private:
     m.color.g = 0.6f;
     m.color.b = 1.0f;
 
+    const double half_band = voxel_size_ * 2;
+    const double z_min_viz = esdf_slice_thickness_ > 0.0 ? esdf_slice_height_ : (esdf_slice_height_ - half_band);
+    const double z_max_viz = esdf_slice_thickness_ > 0.0 ? (esdf_slice_height_ + esdf_slice_thickness_) : (esdf_slice_height_ + half_band);
     for (const auto & pt : obstacle_cloud_->points) {
-      if (std::abs(pt.z - esdf_slice_height_) > voxel_size_ * 2) continue;
+      if (pt.z < z_min_viz || pt.z > z_max_viz) continue;
       geometry_msgs::msg::Point p;
       p.x = pt.x;
       p.y = pt.y;
@@ -214,6 +234,8 @@ private:
   double x_min_, x_max_, y_min_, y_max_, z_min_, z_max_;
   bool publish_esdf_slice_;
   double esdf_slice_height_;
+  double esdf_slice_thickness_;
+  bool accumulate_map_;
 
   tf2_ros::Buffer tf_buffer_;
   tf2_ros::TransformListener tf_listener_;

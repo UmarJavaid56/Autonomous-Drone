@@ -12,7 +12,7 @@ Set goal in RViz: use "Publish Point" (click a 3D point) or "2D Goal Pose" (clic
 import os
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription, TimerAction
+from launch.actions import DeclareLaunchArgument, ExecuteProcess, IncludeLaunchDescription, TimerAction
 from launch.conditions import IfCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration
@@ -26,6 +26,11 @@ def generate_launch_description():
 
     use_sim_time = LaunchConfiguration("use_sim_time", default="true")
     rviz = LaunchConfiguration("rviz", default="true")
+    takeoff_speed = 0.6
+    takeoff_duration = 2.5
+    takeoff_delay = 10.0  # Delay before takeoff to allow sim and TF to start up
+    takeoff_rate = 20
+    takeoff_times = max(1, int(takeoff_duration * takeoff_rate))
 
     # 1) Simulation (Gazebo + bridge)
     sim_launch = IncludeLaunchDescription(
@@ -33,6 +38,21 @@ def generate_launch_description():
             os.path.join(depthai_cam_dir, "launch", "depthai_cam_sim.launch.py")
         ),
         launch_arguments={"use_sim_time": use_sim_time}.items(),
+    )
+
+    # 1b) Point cloud filter: strip NaN/Inf and ground points to avoid RTAB-Map "invalid normal" and topic errors
+    point_cloud_filter_node = Node(
+        package="esdf_server",
+        executable="point_cloud_filter_node",
+        name="point_cloud_filter",
+        output="screen",
+        parameters=[
+            {"use_sim_time": use_sim_time},
+            {"input_topic": "/oak_d_lite/depth/points"},
+            {"output_topic": "/oak_d_lite/depth/points_filtered"},
+            {"min_z_ground": 0.02},
+            {"filter_ground": True},
+        ],
     )
 
     # 2) RTAB-Map SLAM (from existing launch, inlined key nodes)
@@ -67,7 +87,7 @@ def generate_launch_description():
             ("rgb/image", "/oak_d_lite/rgb/image_raw"),
             ("rgb/camera_info", "/oak_d_lite/rgb/camera_info"),
             ("depth/image", "/oak_d_lite/depth/image_raw"),
-            ("scan_cloud", "/oak_d_lite/depth/points"),
+            ("scan_cloud", "/oak_d_lite/depth/points_filtered"),
             ("grid_map", "/map"),
             ("grid_map_updates", "/map_updates"),
         ],
@@ -97,7 +117,11 @@ def generate_launch_description():
         executable="esdf_server_node",
         name="esdf_server",
         output="screen",
-        parameters=[esdf_params, {"use_sim_time": use_sim_time}],
+        parameters=[
+            esdf_params,
+            {"use_sim_time": use_sim_time},
+            {"point_cloud_topic": "/oak_d_lite/depth/points_filtered"},
+        ],
         remappings=[("get_distance", "get_distance")],
     )
 
@@ -156,10 +180,60 @@ def generate_launch_description():
         condition=IfCondition(rviz),
     )
 
+    # 7) Startup hover: enable controller and command a short takeoff, then hover
+    enable_controller = ExecuteProcess(
+        cmd=[
+            "ros2",
+            "topic",
+            "pub",
+            "--once",
+            "/x500_depth/enable",
+            "std_msgs/msg/Bool",
+            "{data: true}",
+        ],
+        output="screen",
+    )
+    takeoff_cmd = ExecuteProcess(
+        cmd=[
+            "ros2",
+            "topic",
+            "pub",
+            "--rate",
+            str(takeoff_rate),
+            "--times",
+            str(takeoff_times),
+            "/x500_depth/cmd_vel",
+            "geometry_msgs/msg/Twist",
+            f"{{linear: {{x: 0.0, y: 0.0, z: {takeoff_speed}}}, angular: {{z: 0.0}}}}",
+        ],
+        output="screen",
+    )
+    hover_cmd = ExecuteProcess(
+        cmd=[
+            "ros2",
+            "topic",
+            "pub",
+            "--once",
+            "/x500_depth/cmd_vel",
+            "geometry_msgs/msg/Twist",
+            "{linear: {x: 0.0, y: 0.0, z: 0.0}, angular: {z: 0.0}}",
+        ],
+        output="screen",
+    )
+    takeoff_sequence = TimerAction(
+        period=takeoff_delay,
+        actions=[enable_controller, takeoff_cmd],
+    )
+    hover_sequence = TimerAction(
+        period=takeoff_delay + takeoff_duration,
+        actions=[hover_cmd],
+    )
+
     return LaunchDescription([
         DeclareLaunchArgument("use_sim_time", default_value="true", description="Use /clock"),
         DeclareLaunchArgument("rviz", default_value="true", description="Launch RViz"),
         sim_launch,
+        point_cloud_filter_node,
         static_tf_world_map,
         static_tf_odom_gazebo,
         rtabmap_delayed,
@@ -168,4 +242,6 @@ def generate_launch_description():
         path_exec_node,
         goal_from_rviz_node,
         rviz_node,
+        takeoff_sequence,
+        hover_sequence,
     ])

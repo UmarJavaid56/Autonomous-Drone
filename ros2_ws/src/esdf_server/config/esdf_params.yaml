@@ -16,4 +16,6 @@ esdf_server:
     z_min: -0.5
     z_max: 3.0
     publish_esdf_slice: true
-    esdf_slice_height: 0.0
+    esdf_slice_height: 0.0   # bottom of visualized band (m)
+    esdf_slice_thickness: 3.0  # show voxels from slice_height to slice_height+thickness (0 = thin slice at z=0 only)
+    accumulate_map: true   # merge new scans into persistent map so voxels/obstacles linger for path planning

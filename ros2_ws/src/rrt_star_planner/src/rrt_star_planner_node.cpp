@@ -48,14 +48,31 @@ public:
   : ob::StateValidityChecker(si),
     client_(client),
     drone_radius_(drone_radius),
-    safety_margin_(safety_margin)
+    safety_margin_(safety_margin),
+    exempt_start_x_(0), exempt_start_y_(0), exempt_start_z_(0),
+    exempt_start_set_(false)
   {}
+
+  void setExemptStart(double x, double y, double z)
+  {
+    exempt_start_x_ = x;
+    exempt_start_y_ = y;
+    exempt_start_z_ = z;
+    exempt_start_set_ = true;
+  }
 
   bool isValid(const ob::State * state) const override
   {
     auto * comp = state->as<ob::CompoundStateSpace::StateType>();
     const auto * pos = comp->as<ob::RealVectorStateSpace::StateType>(0);
     double x = (*pos)[0], y = (*pos)[1], z = (*pos)[2];
+
+    if (exempt_start_set_) {
+      double dx = x - exempt_start_x_, dy = y - exempt_start_y_, dz = z - exempt_start_z_;
+      if (dx * dx + dy * dy + dz * dz < 0.01 * 0.01) {
+        return true;
+      }
+    }
 
     auto request = std::make_shared<esdf_msgs::srv::GetDistance::Request>();
     request->x = x;
@@ -82,6 +99,8 @@ private:
   rclcpp::Client<esdf_msgs::srv::GetDistance>::SharedPtr client_;
   double drone_radius_;
   double safety_margin_;
+  mutable double exempt_start_x_, exempt_start_y_, exempt_start_z_;
+  mutable bool exempt_start_set_;
 };
 
 class RRTStarPlannerNode : public rclcpp::Node
@@ -226,6 +245,10 @@ private:
     ob::SpaceInformationPtr si(new ob::SpaceInformation(space));
     auto validity_checker = std::make_shared<EsdfStateValidityChecker>(
       esdf_client_, si, drone_radius_, safety_margin_);
+    validity_checker->setExemptStart(
+      start_pose.pose.position.x,
+      start_pose.pose.position.y,
+      start_pose.pose.position.z);
     si->setStateValidityChecker(validity_checker);
     si->setStateValidityCheckingResolution(0.05);
     si->setup();
