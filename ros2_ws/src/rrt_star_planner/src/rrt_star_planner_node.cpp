@@ -4,15 +4,20 @@
  */
 
 #include <chrono>
+#include <algorithm>
 #include <memory>
 #include <string>
 #include <thread>
 #include <mutex>
+#include <cmath>
+#include <limits>
+#include <future>
 
 #include <rclcpp/rclcpp.hpp>
 #include <rclcpp/executors.hpp>
 #include <nav_msgs/msg/path.hpp>
 #include <geometry_msgs/msg/pose_stamped.hpp>
+#include <geometry_msgs/msg/point.hpp>
 #include <visualization_msgs/msg/marker_array.hpp>
 #include <std_msgs/msg/bool.hpp>
 #include <tf2_ros/buffer.h>
@@ -115,6 +120,11 @@ public:
     declare_parameter<std::string>("base_frame_id", "base_link");
     declare_parameter<double>("drone_radius", 0.25);
     declare_parameter<double>("safety_margin", 0.15);
+    declare_parameter<bool>("adaptive_safety_margin", true);
+    declare_parameter<double>("min_safety_margin", 0.08);
+    declare_parameter<double>("safety_margin_relax_step", 0.03);
+    declare_parameter<int>("no_solution_before_relax", 3);
+    declare_parameter<int>("success_before_tighten", 4);
     declare_parameter<double>("x_min", -10.0);
     declare_parameter<double>("x_max", 10.0);
     declare_parameter<double>("y_min", -10.0);
@@ -122,14 +132,37 @@ public:
     declare_parameter<double>("z_min", -0.5);
     declare_parameter<double>("z_max", 3.0);
     declare_parameter<double>("goal_bias", 0.15);
-    declare_parameter<double>("max_planning_time", 0.5);
+    declare_parameter<double>("max_planning_time", 1.0);
     declare_parameter<double>("replan_rate", 2.0);
     declare_parameter<int>("path_samples", 50);
+    // <= 0 disables approximate-goal-error rejection and accepts all approximate solutions.
+    declare_parameter<double>("max_approx_goal_distance", -1.0);
+    declare_parameter<bool>("enable_dense_path_validation", true);
+    declare_parameter<double>("collision_check_resolution_m", 0.10);
+    declare_parameter<double>("postcheck_relax_step", 0.02);
+    declare_parameter<double>("start_exempt_radius", 0.12);
+    declare_parameter<int>("consecutive_failures_before_hover", 3);
 
     map_frame_id_ = get_parameter("map_frame_id").as_string();
     base_frame_id_ = get_parameter("base_frame_id").as_string();
     drone_radius_ = get_parameter("drone_radius").as_double();
-    safety_margin_ = get_parameter("safety_margin").as_double();
+    nominal_safety_margin_ = get_parameter("safety_margin").as_double();
+    adaptive_safety_margin_ = get_parameter("adaptive_safety_margin").as_bool();
+    min_safety_margin_ = std::max(0.0, get_parameter("min_safety_margin").as_double());
+    safety_margin_relax_step_ = std::max(
+      0.0, get_parameter("safety_margin_relax_step").as_double());
+    no_solution_before_relax_ = std::max(
+      1, static_cast<int>(get_parameter("no_solution_before_relax").as_int()));
+    success_before_tighten_ = std::max(
+      1, static_cast<int>(get_parameter("success_before_tighten").as_int()));
+    if (min_safety_margin_ > nominal_safety_margin_) {
+      RCLCPP_WARN(
+        get_logger(),
+        "RRT*: min_safety_margin (%.2f) > safety_margin (%.2f). Clamping min to safety.",
+        min_safety_margin_, nominal_safety_margin_);
+      min_safety_margin_ = nominal_safety_margin_;
+    }
+    active_safety_margin_ = nominal_safety_margin_;
     x_min_ = get_parameter("x_min").as_double();
     x_max_ = get_parameter("x_max").as_double();
     y_min_ = get_parameter("y_min").as_double();
@@ -140,6 +173,14 @@ public:
     max_planning_time_ = get_parameter("max_planning_time").as_double();
     replan_rate_ = get_parameter("replan_rate").as_double();
     path_samples_ = get_parameter("path_samples").as_int();
+    max_approx_goal_distance_ = get_parameter("max_approx_goal_distance").as_double();
+    enable_dense_path_validation_ = get_parameter("enable_dense_path_validation").as_bool();
+    collision_check_resolution_m_ = std::max(
+      0.02, get_parameter("collision_check_resolution_m").as_double());
+    postcheck_relax_step_ = std::max(0.0, get_parameter("postcheck_relax_step").as_double());
+    start_exempt_radius_ = std::max(0.0, get_parameter("start_exempt_radius").as_double());
+    consecutive_failures_before_hover_ = std::max(
+      1, static_cast<int>(get_parameter("consecutive_failures_before_hover").as_int()));
 
     goal_sub_ = create_subscription<geometry_msgs::msg::PoseStamped>(
       "goal_pose", 10, std::bind(&RRTStarPlannerNode::goalCallback, this, std::placeholders::_1));
@@ -158,8 +199,15 @@ public:
       std::bind(&RRTStarPlannerNode::replanTimerCallback, this));
 
     RCLCPP_INFO(get_logger(),
-      "RRT* planner: map_frame=%s, drone_radius=%.2f, safety_margin=%.2f, replan=%.1f Hz",
-      map_frame_id_.c_str(), drone_radius_, safety_margin_, replan_rate_);
+      "RRT* planner: map_frame=%s, drone_radius=%.2f, safety_margin=%.2f "
+      "(adaptive=%s, min=%.2f, step=%.2f), replan=%.1f Hz, dense_check=%s "
+      "(res=%.2fm, relax_step=%.2f, start_exempt=%.2fm, hover_after_failures=%d)",
+      map_frame_id_.c_str(), drone_radius_, nominal_safety_margin_,
+      adaptive_safety_margin_ ? "true" : "false", min_safety_margin_,
+      safety_margin_relax_step_, replan_rate_,
+      enable_dense_path_validation_ ? "true" : "false",
+      collision_check_resolution_m_, postcheck_relax_step_, start_exempt_radius_,
+      consecutive_failures_before_hover_);
   }
 
 private:
@@ -224,6 +272,96 @@ private:
       1.0 - 2.0 * (qy * qy + qz * qz));
   }
 
+  bool queryDistance(double x, double y, double z, double & distance, bool & valid)
+  {
+    if (!esdf_client_ || !esdf_client_->service_is_ready()) {
+      return false;
+    }
+
+    auto request = std::make_shared<esdf_msgs::srv::GetDistance::Request>();
+    request->x = x;
+    request->y = y;
+    request->z = z;
+
+    auto result_future = esdf_client_->async_send_request(request);
+    if (result_future.wait_for(std::chrono::milliseconds(100)) != std::future_status::ready) {
+      return false;
+    }
+
+    auto response = result_future.get();
+    valid = response->valid;
+    distance = response->distance;
+    return true;
+  }
+
+  bool isPathCollisionFree(
+    const og::PathGeometric & path,
+    double safety_margin,
+    const geometry_msgs::msg::Point & start_point)
+  {
+    const std::size_t n = path.getStateCount();
+    if (n < 2) {
+      return false;
+    }
+
+    const double step_m = std::max(0.01, collision_check_resolution_m_);
+    const double exempt_sq = start_exempt_radius_ * start_exempt_radius_;
+
+    auto sample_is_valid = [&](double x, double y, double z) -> bool {
+      const double dx0 = x - start_point.x;
+      const double dy0 = y - start_point.y;
+      const double dz0 = z - start_point.z;
+      if (dx0 * dx0 + dy0 * dy0 + dz0 * dz0 <= exempt_sq) {
+        return true;
+      }
+
+      double dist = 0.0;
+      bool valid = false;
+      if (!queryDistance(x, y, z, dist, valid)) {
+        return false;
+      }
+      if (!valid) {
+        return false;
+      }
+      return dist > (drone_radius_ + safety_margin);
+    };
+
+    for (std::size_t i = 0; i + 1 < n; ++i) {
+      const auto * c0 = path.getState(i)->as<ob::CompoundState>();
+      const auto * c1 = path.getState(i + 1)->as<ob::CompoundState>();
+      const auto * p0 = c0->as<ob::RealVectorStateSpace::StateType>(0);
+      const auto * p1 = c1->as<ob::RealVectorStateSpace::StateType>(0);
+
+      const double x0 = p0->values[0];
+      const double y0 = p0->values[1];
+      const double z0 = p0->values[2];
+      const double x1 = p1->values[0];
+      const double y1 = p1->values[1];
+      const double z1 = p1->values[2];
+
+      const double dx = x1 - x0;
+      const double dy = y1 - y0;
+      const double dz = z1 - z0;
+      const double seg_len = std::sqrt(dx * dx + dy * dy + dz * dz);
+      const int steps = std::max(1, static_cast<int>(std::ceil(seg_len / step_m)));
+
+      for (int s = 0; s <= steps; ++s) {
+        if (i > 0 && s == 0) {
+          continue;
+        }
+        const double t = static_cast<double>(s) / static_cast<double>(steps);
+        const double x = x0 + t * dx;
+        const double y = y0 + t * dy;
+        const double z = z0 + t * dz;
+        if (!sample_is_valid(x, y, z)) {
+          return false;
+        }
+      }
+    }
+
+    return true;
+  }
+
   void runPlanning(
     const geometry_msgs::msg::PoseStamped & start_pose,
     const geometry_msgs::msg::PoseStamped & goal_pose)
@@ -248,7 +386,7 @@ private:
 
     ob::SpaceInformationPtr si(new ob::SpaceInformation(space));
     auto validity_checker = std::make_shared<EsdfStateValidityChecker>(
-      esdf_client_, si, drone_radius_, safety_margin_);
+      esdf_client_, si, drone_radius_, active_safety_margin_);
     validity_checker->setExemptStart(
       start_pose.pose.position.x,
       start_pose.pose.position.y,
@@ -296,17 +434,73 @@ private:
 
     publishPlanningActive(false);
 
-    if (status != ob::PlannerStatus::EXACT_SOLUTION && status != ob::PlannerStatus::APPROXIMATE_SOLUTION) {
-      RCLCPP_WARN(get_logger(), "RRT*: no solution (timeout or invalid)");
-      publishEmptyPath();
+    if (status != ob::PlannerStatus::EXACT_SOLUTION &&
+      status != ob::PlannerStatus::APPROXIMATE_SOLUTION)
+    {
+      handlePlanningFailure("RRT*: no solution (timeout or invalid)");
       return;
     }
 
     og::PathGeometric * path = pdef->getSolutionPath()->as<og::PathGeometric>();
     if (!path || path->getStateCount() < 2) {
-      publishEmptyPath();
+      handlePlanningFailure("RRT*: planner returned invalid/short path");
       return;
     }
+
+    if (status == ob::PlannerStatus::APPROXIMATE_SOLUTION) {
+      const double goal_error = pathGoalError(*path, goal_pose);
+      if (max_approx_goal_distance_ > 0.0 && goal_error > max_approx_goal_distance_) {
+        RCLCPP_WARN(
+          get_logger(),
+          "RRT*: rejecting approximate solution (goal error %.2f m > %.2f m)",
+          goal_error, max_approx_goal_distance_);
+        handlePlanningFailure("RRT*: approximate solution rejected by goal error");
+        return;
+      }
+      if (max_approx_goal_distance_ > 0.0) {
+        RCLCPP_WARN(
+          get_logger(), "RRT*: using approximate solution (goal error %.2f m)", goal_error);
+      } else {
+        RCLCPP_WARN(
+          get_logger(),
+          "RRT*: using approximate solution (goal error %.2f m, rejection disabled)", goal_error);
+      }
+    }
+
+    if (enable_dense_path_validation_) {
+      geometry_msgs::msg::Point start_point = start_pose.pose.position;
+      bool safe = isPathCollisionFree(*path, active_safety_margin_, start_point);
+      double accepted_margin = active_safety_margin_;
+
+      if (!safe && adaptive_safety_margin_ && postcheck_relax_step_ > 0.0) {
+        double trial_margin = active_safety_margin_;
+        while (trial_margin > min_safety_margin_ + 1e-6) {
+          trial_margin = std::max(min_safety_margin_, trial_margin - postcheck_relax_step_);
+          if (isPathCollisionFree(*path, trial_margin, start_point)) {
+            safe = true;
+            accepted_margin = trial_margin;
+            break;
+          }
+        }
+      }
+
+      if (!safe) {
+        handlePlanningFailure("RRT*: dense collision check rejected path");
+        return;
+      }
+
+      if (accepted_margin + 1e-6 < active_safety_margin_) {
+        RCLCPP_WARN(
+          get_logger(),
+          "RRT*: accepting path with relaxed safety_margin %.2f -> %.2f",
+          active_safety_margin_, accepted_margin);
+        active_safety_margin_ = accepted_margin;
+        success_streak_ = 0;
+        no_solution_streak_ = 0;
+      }
+    }
+
+    handlePlanningSuccess();
 
     nav_msgs::msg::Path path_msg;
     path_msg.header.frame_id = map_frame_id_;
@@ -350,6 +544,70 @@ private:
     path_pub_->publish(path_msg);
   }
 
+  void handlePlanningFailure(const std::string & reason)
+  {
+    RCLCPP_WARN(get_logger(), "%s", reason.c_str());
+
+    success_streak_ = 0;
+    ++no_solution_streak_;
+
+    if (adaptive_safety_margin_ && safety_margin_relax_step_ > 0.0) {
+      if (no_solution_streak_ >= no_solution_before_relax_) {
+        const double new_margin = std::max(
+          min_safety_margin_, active_safety_margin_ - safety_margin_relax_step_);
+        if (new_margin + 1e-6 < active_safety_margin_) {
+          RCLCPP_WARN(
+            get_logger(),
+            "RRT*: relaxing safety_margin %.2f -> %.2f after %d consecutive failures",
+            active_safety_margin_, new_margin, no_solution_before_relax_);
+          active_safety_margin_ = new_margin;
+        }
+        no_solution_streak_ = 0;
+      }
+    }
+
+    ++path_failure_streak_;
+    if (path_failure_streak_ >= consecutive_failures_before_hover_) {
+      publishEmptyPath();
+    } else {
+      RCLCPP_WARN(
+        get_logger(),
+        "RRT*: keeping previous path (failure streak %d/%d)",
+        path_failure_streak_, consecutive_failures_before_hover_);
+    }
+  }
+
+  void handlePlanningSuccess()
+  {
+    path_failure_streak_ = 0;
+    no_solution_streak_ = 0;
+
+    if (!adaptive_safety_margin_ || safety_margin_relax_step_ <= 0.0) {
+      success_streak_ = 0;
+      return;
+    }
+
+    if (active_safety_margin_ + 1e-6 >= nominal_safety_margin_) {
+      active_safety_margin_ = nominal_safety_margin_;
+      success_streak_ = 0;
+      return;
+    }
+
+    ++success_streak_;
+    if (success_streak_ >= success_before_tighten_) {
+      const double new_margin = std::min(
+        nominal_safety_margin_, active_safety_margin_ + safety_margin_relax_step_);
+      if (new_margin > active_safety_margin_ + 1e-6) {
+        RCLCPP_INFO(
+          get_logger(),
+          "RRT*: restoring safety_margin %.2f -> %.2f after %d successful replans",
+          active_safety_margin_, new_margin, success_before_tighten_);
+        active_safety_margin_ = new_margin;
+      }
+      success_streak_ = 0;
+    }
+  }
+
   void publishPathMarkers(const nav_msgs::msg::Path & path_msg)
   {
     visualization_msgs::msg::MarkerArray ma;
@@ -377,15 +635,45 @@ private:
     path_marker_pub_->publish(ma);
   }
 
+  double pathGoalError(
+    const og::PathGeometric & path,
+    const geometry_msgs::msg::PoseStamped & goal_pose) const
+  {
+    if (path.getStateCount() == 0) {
+      return std::numeric_limits<double>::infinity();
+    }
+    const auto * comp = path.getState(path.getStateCount() - 1)->as<ob::CompoundState>();
+    const auto * pos = comp->as<ob::RealVectorStateSpace::StateType>(0);
+    const double dx = pos->values[0] - goal_pose.pose.position.x;
+    const double dy = pos->values[1] - goal_pose.pose.position.y;
+    const double dz = pos->values[2] - goal_pose.pose.position.z;
+    return std::sqrt(dx * dx + dy * dy + dz * dz);
+  }
+
   std::string map_frame_id_;
   std::string base_frame_id_;
   double drone_radius_;
-  double safety_margin_;
+  double nominal_safety_margin_;
+  double active_safety_margin_;
+  bool adaptive_safety_margin_;
+  double min_safety_margin_;
+  double safety_margin_relax_step_;
+  int no_solution_before_relax_;
+  int success_before_tighten_;
+  int no_solution_streak_{0};
+  int success_streak_{0};
   double x_min_, x_max_, y_min_, y_max_, z_min_, z_max_;
   double goal_bias_;
   double max_planning_time_;
   double replan_rate_;
   int path_samples_;
+  double max_approx_goal_distance_;
+  bool enable_dense_path_validation_;
+  double collision_check_resolution_m_;
+  double postcheck_relax_step_;
+  double start_exempt_radius_;
+  int consecutive_failures_before_hover_;
+  int path_failure_streak_{0};
 
   tf2_ros::Buffer tf_buffer_;
   tf2_ros::TransformListener tf_listener_;

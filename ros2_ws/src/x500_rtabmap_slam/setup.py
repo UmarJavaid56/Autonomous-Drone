@@ -26,6 +26,7 @@ setup(
     entry_points={
         'console_scripts': [
             'goal_from_rviz_node = rtabmap_slam.goal_from_rviz:main',
+            'takeoff_node = rtabmap_slam.takeoff_node:main',
         ],
     },
 )

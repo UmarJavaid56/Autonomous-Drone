@@ -25,6 +25,10 @@ class GoalFromRvizNode(Node):
         self.declare_parameter("base_frame_id", "base_link")
         self.declare_parameter("use_drone_height_for_2d_goal", True)
         self.declare_parameter("ground_z_threshold", 0.4)
+        self.declare_parameter("clamp_goal_z", True)
+        self.declare_parameter("min_2d_goal_z", 0.85)
+        self.declare_parameter("goal_z_min", -0.2)
+        self.declare_parameter("goal_z_max", 1.4)
 
         clicked_topic = self.get_parameter("clicked_point_topic").value
         goal_in_topic = self.get_parameter("goal_pose_in_topic").value
@@ -33,6 +37,10 @@ class GoalFromRvizNode(Node):
         self.base_frame_id = self.get_parameter("base_frame_id").value
         self.use_drone_height = self.get_parameter("use_drone_height_for_2d_goal").value
         self.ground_z_threshold = self.get_parameter("ground_z_threshold").value
+        self.clamp_goal_z = self.get_parameter("clamp_goal_z").value
+        self.min_2d_goal_z = self.get_parameter("min_2d_goal_z").value
+        self.goal_z_min = self.get_parameter("goal_z_min").value
+        self.goal_z_max = self.get_parameter("goal_z_max").value
 
         self.tf_buffer = Buffer()
         self.tf_listener = TransformListener(self.tf_buffer, self)
@@ -72,6 +80,7 @@ class GoalFromRvizNode(Node):
         pose = PoseStamped()
         pose.header = msg.header
         pose.pose.position = msg.point
+        pose.pose.position.z = self._clamp_goal_z(pose.pose.position.z)
         pose.pose.orientation.x = 0.0
         pose.pose.orientation.y = 0.0
         pose.pose.orientation.z = 0.0
@@ -85,10 +94,11 @@ class GoalFromRvizNode(Node):
     def cb_goal_pose(self, msg: PoseStamped):
         z = msg.pose.position.z
         if not self.use_drone_height or z > self.ground_z_threshold:
+            msg.pose.position.z = self._clamp_goal_z(msg.pose.position.z)
             self.pub.publish(msg)
             self.get_logger().info(
                 "Goal forwarded as-is: (x=%.2f, y=%.2f, z=%.2f)"
-                % (msg.pose.position.x, msg.pose.position.y, z)
+                % (msg.pose.position.x, msg.pose.position.y, msg.pose.position.z)
             )
             return
         drone_z = self._get_drone_z_in_map()
@@ -98,14 +108,21 @@ class GoalFromRvizNode(Node):
                 % z,
                 throttle_duration_sec=2.0,
             )
+            msg.pose.position.z = self._clamp_goal_z(msg.pose.position.z)
             self.pub.publish(msg)
             return
-        msg.pose.position.z = float(drone_z)
+        corrected_z = self._clamp_goal_z(max(float(drone_z), float(self.min_2d_goal_z)))
+        msg.pose.position.z = corrected_z
         self.pub.publish(msg)
         self.get_logger().info(
-            "Goal from 2D Goal Pose: (x=%.2f, y=%.2f) z corrected %.2f -> %.2f (drone height)"
-            % (msg.pose.position.x, msg.pose.position.y, z, drone_z)
+            "Goal from 2D Goal Pose: (x=%.2f, y=%.2f) z corrected %.2f -> %.2f"
+            % (msg.pose.position.x, msg.pose.position.y, z, corrected_z)
         )
+
+    def _clamp_goal_z(self, z: float) -> float:
+        if not self.clamp_goal_z:
+            return float(z)
+        return float(min(self.goal_z_max, max(self.goal_z_min, z)))
 
 
 def main(args=None):
@@ -117,7 +134,8 @@ def main(args=None):
         pass
     finally:
         node.destroy_node()
-        rclpy.shutdown()
+        if rclpy.ok():
+            rclpy.shutdown()
 
 
 if __name__ == "__main__":

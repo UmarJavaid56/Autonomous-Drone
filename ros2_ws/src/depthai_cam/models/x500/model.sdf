@@ -80,10 +80,10 @@
       <commandSubTopic>cmd_vel</commandSubTopic>
       <enableSubTopic>enable</enableSubTopic>
       <comLinkName>base_link</comLinkName>
-      <velocityGain>2.7 2.7 2.7</velocityGain>
-      <attitudeGain>2.0 3.0 0.15</attitudeGain>
-      <angularRateGain>0.4 0.52 0.18</angularRateGain>
-      <maximumLinearAcceleration>2 2 2</maximumLinearAcceleration>
+      <velocityGain>5.0 5.0 2.7</velocityGain>
+      <attitudeGain>3.0 4.0 0.15</attitudeGain>
+      <angularRateGain>0.5 0.7 0.18</angularRateGain>
+      <maximumLinearAcceleration>3 3 2</maximumLinearAcceleration>
       <maximumLinearVelocity>5 5 5</maximumLinearVelocity>
       <maximumAngularVelocity>3 3 3</maximumAngularVelocity>
       <linearVelocityNoiseMean>0 0 0</linearVelocityNoiseMean>

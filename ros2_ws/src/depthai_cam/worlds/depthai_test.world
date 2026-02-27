@@ -215,7 +215,7 @@
     <!-- Include X500 drone with depth camera -->
     <include>
       <uri>model://x500_depth</uri>
-      <pose>0 0 1 0 0 0</pose>
+      <pose>0 0 0 0 0 0</pose>
       <name>x500_depth</name>
     </include>
 

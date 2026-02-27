@@ -19,3 +19,8 @@ esdf_server:
     esdf_slice_height: 0.0   # bottom of visualized band (m)
     esdf_slice_thickness: 3.0  # show voxels from slice_height to slice_height+thickness (0 = thin slice at z=0 only)
     accumulate_map: true   # merge new scans into persistent map so voxels/obstacles linger for path planning
+    unknown_is_occupied: true  # if query voxel has not been observed by depth rays, report invalid (planner treats as collision)
+    max_raycast_points_per_cloud: 300  # cap per-cloud rays used to build observed free-space
+    raycast_decimation: 4  # only raycast every Nth cloud to keep CPU usage bounded
+    raycast_step_m: 0.10  # ray march step when marking observed-free voxels
+    max_observed_voxels: 1200000  # soft cache bound for observed-free/occupied voxel sets
