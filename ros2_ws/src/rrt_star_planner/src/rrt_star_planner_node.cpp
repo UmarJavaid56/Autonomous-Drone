@@ -142,6 +142,7 @@ public:
     declare_parameter<double>("postcheck_relax_step", 0.02);
     declare_parameter<double>("start_exempt_radius", 0.12);
     declare_parameter<int>("consecutive_failures_before_hover", 3);
+    declare_parameter<bool>("hover_on_planning_failure", true);
 
     map_frame_id_ = get_parameter("map_frame_id").as_string();
     base_frame_id_ = get_parameter("base_frame_id").as_string();
@@ -181,6 +182,7 @@ public:
     start_exempt_radius_ = std::max(0.0, get_parameter("start_exempt_radius").as_double());
     consecutive_failures_before_hover_ = std::max(
       1, static_cast<int>(get_parameter("consecutive_failures_before_hover").as_int()));
+    hover_on_planning_failure_ = get_parameter("hover_on_planning_failure").as_bool();
 
     goal_sub_ = create_subscription<geometry_msgs::msg::PoseStamped>(
       "goal_pose", 10, std::bind(&RRTStarPlannerNode::goalCallback, this, std::placeholders::_1));
@@ -201,13 +203,14 @@ public:
     RCLCPP_INFO(get_logger(),
       "RRT* planner: map_frame=%s, drone_radius=%.2f, safety_margin=%.2f "
       "(adaptive=%s, min=%.2f, step=%.2f), replan=%.1f Hz, dense_check=%s "
-      "(res=%.2fm, relax_step=%.2f, start_exempt=%.2fm, hover_after_failures=%d)",
+      "(res=%.2fm, relax_step=%.2f, start_exempt=%.2fm, hover_after_failures=%d, "
+      "hover_on_failure=%s)",
       map_frame_id_.c_str(), drone_radius_, nominal_safety_margin_,
       adaptive_safety_margin_ ? "true" : "false", min_safety_margin_,
       safety_margin_relax_step_, replan_rate_,
       enable_dense_path_validation_ ? "true" : "false",
       collision_check_resolution_m_, postcheck_relax_step_, start_exempt_radius_,
-      consecutive_failures_before_hover_);
+      consecutive_failures_before_hover_, hover_on_planning_failure_ ? "true" : "false");
   }
 
 private:
@@ -437,13 +440,13 @@ private:
     if (status != ob::PlannerStatus::EXACT_SOLUTION &&
       status != ob::PlannerStatus::APPROXIMATE_SOLUTION)
     {
-      handlePlanningFailure("RRT*: no solution (timeout or invalid)");
+      handlePlanningFailure("RRT*: no solution (timeout or invalid)", hover_on_planning_failure_);
       return;
     }
 
     og::PathGeometric * path = pdef->getSolutionPath()->as<og::PathGeometric>();
     if (!path || path->getStateCount() < 2) {
-      handlePlanningFailure("RRT*: planner returned invalid/short path");
+      handlePlanningFailure("RRT*: planner returned invalid/short path", hover_on_planning_failure_);
       return;
     }
 
@@ -454,7 +457,8 @@ private:
           get_logger(),
           "RRT*: rejecting approximate solution (goal error %.2f m > %.2f m)",
           goal_error, max_approx_goal_distance_);
-        handlePlanningFailure("RRT*: approximate solution rejected by goal error");
+        handlePlanningFailure(
+          "RRT*: approximate solution rejected by goal error", hover_on_planning_failure_);
         return;
       }
       if (max_approx_goal_distance_ > 0.0) {
@@ -485,7 +489,7 @@ private:
       }
 
       if (!safe) {
-        handlePlanningFailure("RRT*: dense collision check rejected path");
+        handlePlanningFailure("RRT*: dense collision check rejected path", true);
         return;
       }
 
@@ -544,7 +548,7 @@ private:
     path_pub_->publish(path_msg);
   }
 
-  void handlePlanningFailure(const std::string & reason)
+  void handlePlanningFailure(const std::string & reason, bool force_hover = false)
   {
     RCLCPP_WARN(get_logger(), "%s", reason.c_str());
 
@@ -567,6 +571,14 @@ private:
     }
 
     ++path_failure_streak_;
+    if (force_hover) {
+      RCLCPP_WARN(
+        get_logger(),
+        "RRT*: publishing empty path immediately due to collision-risk planning failure");
+      publishEmptyPath();
+      return;
+    }
+
     if (path_failure_streak_ >= consecutive_failures_before_hover_) {
       publishEmptyPath();
     } else {
@@ -673,6 +685,7 @@ private:
   double postcheck_relax_step_;
   double start_exempt_radius_;
   int consecutive_failures_before_hover_;
+  bool hover_on_planning_failure_;
   int path_failure_streak_{0};
 
   tf2_ros::Buffer tf_buffer_;

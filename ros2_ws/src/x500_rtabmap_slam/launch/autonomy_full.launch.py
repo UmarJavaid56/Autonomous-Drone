@@ -50,9 +50,27 @@ def generate_launch_description():
     postcheck_relax_step = LaunchConfiguration("postcheck_relax_step", default="0.02")
     start_exempt_radius = LaunchConfiguration("start_exempt_radius", default="0.12")
     consecutive_failures_before_hover = LaunchConfiguration("consecutive_failures_before_hover", default="3")
+    hover_on_planning_failure = LaunchConfiguration("hover_on_planning_failure", default="true")
     planner_z_min = LaunchConfiguration("planner_z_min", default="-0.2")
     planner_z_max = LaunchConfiguration("planner_z_max", default="1.25")
     min_altitude_for_xy_motion = LaunchConfiguration("min_altitude_for_xy_motion", default="0.85")
+    hover_reference_frame_id = LaunchConfiguration("hover_reference_frame_id", default="odom")
+    cmd_vel_body_x_gain = LaunchConfiguration("cmd_vel_body_x_gain", default="1.0")
+    cmd_vel_body_y_gain = LaunchConfiguration("cmd_vel_body_y_gain", default="1.0")
+    max_path_age_sec = LaunchConfiguration("max_path_age_sec", default="1.5")
+    min_consecutive_nonempty_paths = LaunchConfiguration("min_consecutive_nonempty_paths", default="6")
+    hard_stop_on_no_path = LaunchConfiguration("hard_stop_on_no_path", default="true")
+    hard_stop_drift_guard = LaunchConfiguration("hard_stop_drift_guard", default="true")
+    hard_stop_drift_guard_pos_threshold = LaunchConfiguration("hard_stop_drift_guard_pos_threshold", default="0.02")
+    hard_stop_drift_guard_vel_threshold = LaunchConfiguration("hard_stop_drift_guard_vel_threshold", default="0.02")
+    hard_stop_drift_guard_hold_kp = LaunchConfiguration("hard_stop_drift_guard_hold_kp", default="0.6")
+    hard_stop_drift_guard_brake_kp = LaunchConfiguration("hard_stop_drift_guard_brake_kp", default="1.2")
+    hard_stop_drift_guard_max_speed = LaunchConfiguration("hard_stop_drift_guard_max_speed", default="0.20")
+    hover_brake_kp = LaunchConfiguration("hover_brake_kp", default="4.0")
+    hover_brake_max_speed = LaunchConfiguration("hover_brake_max_speed", default="1.5")
+    hover_hold_kp = LaunchConfiguration("hover_hold_kp", default="2.0")
+    hover_hold_max_speed = LaunchConfiguration("hover_hold_max_speed", default="1.5")
+    hover_total_max_speed = LaunchConfiguration("hover_total_max_speed", default="1.5")
     takeoff_speed = 0.6
     takeoff_duration = 3.0  # sim-time seconds of ascent
     takeoff_delay = 10.0  # wall-time delay before takeoff to allow sim and TF to start up
@@ -174,6 +192,7 @@ def generate_launch_description():
             {"postcheck_relax_step": postcheck_relax_step},
             {"start_exempt_radius": start_exempt_radius},
             {"consecutive_failures_before_hover": consecutive_failures_before_hover},
+            {"hover_on_planning_failure": hover_on_planning_failure},
             {"z_min": planner_z_min},
             {"z_max": planner_z_max},
             {"replan_rate": 2.0},
@@ -196,6 +215,7 @@ def generate_launch_description():
         output="screen",
         parameters=[
             {"use_sim_time": use_sim_time},
+            {"hover_reference_frame_id": hover_reference_frame_id},
             {"path_topic": "path"},
             {"cmd_vel_topic": "/x500_depth/cmd_vel"},
             {"enable_topic": "/x500_depth/enable"},
@@ -210,6 +230,22 @@ def generate_launch_description():
             {"min_heading_speed_factor": 0.20},
             {"min_xy_dist_for_heading_align": 0.10},
             {"cmd_vel_is_body_frame": True},
+            {"cmd_vel_body_x_gain": cmd_vel_body_x_gain},
+            {"cmd_vel_body_y_gain": cmd_vel_body_y_gain},
+            {"max_path_age_sec": max_path_age_sec},
+            {"min_consecutive_nonempty_paths": min_consecutive_nonempty_paths},
+            {"hard_stop_on_no_path": hard_stop_on_no_path},
+            {"hard_stop_drift_guard": hard_stop_drift_guard},
+            {"hard_stop_drift_guard_pos_threshold": hard_stop_drift_guard_pos_threshold},
+            {"hard_stop_drift_guard_vel_threshold": hard_stop_drift_guard_vel_threshold},
+            {"hard_stop_drift_guard_hold_kp": hard_stop_drift_guard_hold_kp},
+            {"hard_stop_drift_guard_brake_kp": hard_stop_drift_guard_brake_kp},
+            {"hard_stop_drift_guard_max_speed": hard_stop_drift_guard_max_speed},
+            {"hover_brake_kp": hover_brake_kp},
+            {"hover_brake_max_speed": hover_brake_max_speed},
+            {"hover_hold_kp": hover_hold_kp},
+            {"hover_hold_max_speed": hover_hold_max_speed},
+            {"hover_total_max_speed": hover_total_max_speed},
             {"enforce_takeoff_before_xy": True},
             {"min_altitude_for_xy_motion": min_altitude_for_xy_motion},
             {"enforce_min_target_altitude": True},
@@ -295,6 +331,91 @@ def generate_launch_description():
             description="Path executor safety gate: climb to this altitude before XY translation.",
         ),
         DeclareLaunchArgument(
+            "hover_reference_frame_id",
+            default_value="odom",
+            description="Frame used by hover safety controller (should be stable even if map drifts).",
+        ),
+        DeclareLaunchArgument(
+            "cmd_vel_body_x_gain",
+            default_value="1.0",
+            description="Scale/sign for body-frame cmd_vel x sent to Gazebo velocity controller.",
+        ),
+        DeclareLaunchArgument(
+            "cmd_vel_body_y_gain",
+            default_value="1.0",
+            description="Scale/sign for body-frame cmd_vel y sent to Gazebo velocity controller.",
+        ),
+        DeclareLaunchArgument(
+            "max_path_age_sec",
+            default_value="1.5",
+            description="Maximum path age before executor forces hover.",
+        ),
+        DeclareLaunchArgument(
+            "min_consecutive_nonempty_paths",
+            default_value="3",
+            description="Require this many consecutive non-empty path messages before allowing XY motion.",
+        ),
+        DeclareLaunchArgument(
+            "hard_stop_on_no_path",
+            default_value="true",
+            description="If true, executor does not track path on empty/stale input; optional drift guard may still apply.",
+        ),
+        DeclareLaunchArgument(
+            "hard_stop_drift_guard",
+            default_value="true",
+            description="In hard-stop mode, apply bounded anti-drift correction when displacement/velocity exceeds thresholds.",
+        ),
+        DeclareLaunchArgument(
+            "hard_stop_drift_guard_pos_threshold",
+            default_value="0.02",
+            description="Hard-stop drift guard activation threshold for XY displacement (meters).",
+        ),
+        DeclareLaunchArgument(
+            "hard_stop_drift_guard_vel_threshold",
+            default_value="0.02",
+            description="Hard-stop drift guard activation threshold for XY speed (m/s).",
+        ),
+        DeclareLaunchArgument(
+            "hard_stop_drift_guard_hold_kp",
+            default_value="0.6",
+            description="Hard-stop drift guard XY position gain.",
+        ),
+        DeclareLaunchArgument(
+            "hard_stop_drift_guard_brake_kp",
+            default_value="1.2",
+            description="Hard-stop drift guard XY velocity damping gain.",
+        ),
+        DeclareLaunchArgument(
+            "hard_stop_drift_guard_max_speed",
+            default_value="0.20",
+            description="Hard-stop drift guard max XY correction speed (m/s).",
+        ),
+        DeclareLaunchArgument(
+            "hover_brake_kp",
+            default_value="4.0",
+            description="Velocity damping gain used by hover safety mode.",
+        ),
+        DeclareLaunchArgument(
+            "hover_brake_max_speed",
+            default_value="1.5",
+            description="Max XY damping command speed in hover safety mode.",
+        ),
+        DeclareLaunchArgument(
+            "hover_hold_kp",
+            default_value="2.0",
+            description="XY position-hold gain toward hover anchor when no path is valid.",
+        ),
+        DeclareLaunchArgument(
+            "hover_hold_max_speed",
+            default_value="1.5",
+            description="Max XY hold speed toward hover anchor when no path is valid.",
+        ),
+        DeclareLaunchArgument(
+            "hover_total_max_speed",
+            default_value="1.5",
+            description="Final max XY speed after combining hover hold + damping commands.",
+        ),
+        DeclareLaunchArgument(
             "safety_margin",
             default_value="0.18",
             description="Nominal ESDF clearance added to drone_radius (meters).",
@@ -348,6 +469,11 @@ def generate_launch_description():
             "consecutive_failures_before_hover",
             default_value="3",
             description="Number of consecutive planning failures before publishing empty path (hover).",
+        ),
+        DeclareLaunchArgument(
+            "hover_on_planning_failure",
+            default_value="true",
+            description="If true, publish empty path immediately on any planning failure to avoid following stale paths.",
         ),
         DeclareLaunchArgument(
             "unknown_is_occupied",
