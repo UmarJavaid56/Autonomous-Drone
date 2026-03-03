@@ -11,8 +11,11 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <filesystem>
 #include <memory>
+#include <mutex>
 #include <string>
+#include <unordered_map>
 #include <unordered_set>
 #include <vector>
 
@@ -34,6 +37,7 @@
 #include <pcl/point_types.h>
 #include <pcl_conversions/pcl_conversions.h>
 #include <pcl/filters/voxel_grid.h>
+#include <pcl/io/pcd_io.h>
 #include <pcl/kdtree/kdtree_flann.h>
 
 #include <esdf_msgs/srv/get_distance.hpp>
@@ -88,6 +92,15 @@ public:
     declare_parameter<double>("esdf_slice_height", 0.0);
     declare_parameter<double>("esdf_slice_thickness", 3.0);  // 0 = thin slice at height; >0 = show voxels from height to height+thickness
     declare_parameter<bool>("accumulate_map", true);  // true = merge new scans into persistent map (for planning); false = live scan only
+    // If > 0 and accumulate_map=true, occupied voxels decay after this many seconds.
+    // This prevents dynamic obstacles (e.g., people) from persisting forever.
+    declare_parameter<double>("obstacle_decay_sec", 12.0);
+    declare_parameter<int>("max_temporal_obstacles", 600000);
+    declare_parameter<bool>("static_layer_enabled", false);
+    declare_parameter<std::string>("static_map_file", "");
+    declare_parameter<bool>("load_static_map_on_start", false);
+    declare_parameter<bool>("save_static_map_on_shutdown", false);
+    declare_parameter<bool>("update_static_from_cloud", false);
     declare_parameter<bool>("unknown_is_occupied", true);
     declare_parameter<int>("max_raycast_points_per_cloud", 300);
     declare_parameter<int>("raycast_decimation", 4);
@@ -110,6 +123,14 @@ public:
     esdf_slice_height_ = get_parameter("esdf_slice_height").as_double();
     esdf_slice_thickness_ = get_parameter("esdf_slice_thickness").as_double();
     accumulate_map_ = get_parameter("accumulate_map").as_bool();
+    obstacle_decay_sec_ = std::max(0.0, get_parameter("obstacle_decay_sec").as_double());
+    max_temporal_obstacles_ = std::max(
+      10000, static_cast<int>(get_parameter("max_temporal_obstacles").as_int()));
+    static_layer_enabled_ = get_parameter("static_layer_enabled").as_bool();
+    static_map_file_ = get_parameter("static_map_file").as_string();
+    load_static_map_on_start_ = get_parameter("load_static_map_on_start").as_bool();
+    save_static_map_on_shutdown_ = get_parameter("save_static_map_on_shutdown").as_bool();
+    update_static_from_cloud_ = get_parameter("update_static_from_cloud").as_bool();
     unknown_is_occupied_ = get_parameter("unknown_is_occupied").as_bool();
     max_raycast_points_per_cloud_ = std::max(
       1, static_cast<int>(get_parameter("max_raycast_points_per_cloud").as_int()));
@@ -134,12 +155,37 @@ public:
       esdf_slice_pub_ = create_publisher<visualization_msgs::msg::MarkerArray>("esdf_slice", 1);
     }
 
+    if (static_layer_enabled_ && load_static_map_on_start_) {
+      loadStaticMapFromFile();
+    }
+
+    if (static_layer_enabled_ && static_obstacle_cloud_ && !static_obstacle_cloud_->empty()) {
+      std::lock_guard<std::mutex> lock(kdtree_mutex_);
+      obstacle_cloud_ = static_obstacle_cloud_;
+      kdtree_.setInputCloud(obstacle_cloud_);
+      map_ready_ = true;
+      last_map_update_time_ = now();
+    }
+
     RCLCPP_INFO(
       get_logger(),
       "ESDF server (OctoMap fallback): point_cloud=%s, frame=%s, voxel=%.3f, "
-      "accumulate_map=%s, unknown_is_occupied=%s",
+      "accumulate_map=%s, decay=%.1fs, static_layer=%s, update_static=%s, "
+      "unknown_is_occupied=%s",
       point_cloud_topic_.c_str(), map_frame_id_.c_str(), voxel_size_,
-      accumulate_map_ ? "true" : "false", unknown_is_occupied_ ? "true" : "false");
+      accumulate_map_ ? "true" : "false", obstacle_decay_sec_,
+      static_layer_enabled_ ? "true" : "false",
+      update_static_from_cloud_ ? "true" : "false",
+      unknown_is_occupied_ ? "true" : "false");
+  }
+
+  ~EsdfServerNode() override
+  {
+    if (!static_layer_enabled_ || !save_static_map_on_shutdown_) {
+      return;
+    }
+    std::lock_guard<std::mutex> lock(kdtree_mutex_);
+    saveStaticMapToFile();
   }
 
 private:
@@ -156,6 +202,189 @@ private:
       static_cast<int>(std::floor(x / voxel_size_)),
       static_cast<int>(std::floor(y / voxel_size_)),
       static_cast<int>(std::floor(z / voxel_size_))};
+  }
+
+  pcl::PointCloud<pcl::PointXYZ>::Ptr buildCloudFromVoxelSet(
+    const std::unordered_set<VoxelKey, VoxelKeyHash> & voxels) const
+  {
+    pcl::PointCloud<pcl::PointXYZ>::Ptr cloud(new pcl::PointCloud<pcl::PointXYZ>);
+    cloud->reserve(voxels.size());
+    for (const auto & key : voxels) {
+      pcl::PointXYZ pt;
+      pt.x = (static_cast<double>(key.x) + 0.5) * voxel_size_;
+      pt.y = (static_cast<double>(key.y) + 0.5) * voxel_size_;
+      pt.z = (static_cast<double>(key.z) + 0.5) * voxel_size_;
+      cloud->points.push_back(pt);
+    }
+    cloud->width = static_cast<std::uint32_t>(cloud->points.size());
+    cloud->height = 1;
+    cloud->is_dense = true;
+    return cloud;
+  }
+
+  pcl::PointCloud<pcl::PointXYZ>::Ptr buildCloudFromTemporalObstacles() const
+  {
+    std::unordered_set<VoxelKey, VoxelKeyHash> voxels;
+    voxels.reserve(temporal_obstacle_last_seen_.size());
+    for (const auto & kv : temporal_obstacle_last_seen_) {
+      voxels.insert(kv.first);
+    }
+    return buildCloudFromVoxelSet(voxels);
+  }
+
+  bool updateStaticObstacles(const pcl::PointCloud<pcl::PointXYZ>::Ptr & downsampled)
+  {
+    if (!downsampled) {
+      return false;
+    }
+    bool changed = false;
+    for (const auto & pt : downsampled->points) {
+      if (!std::isfinite(pt.x) || !std::isfinite(pt.y) || !std::isfinite(pt.z)) {
+        continue;
+      }
+      if (!inBounds(pt.x, pt.y, pt.z)) {
+        continue;
+      }
+      const auto inserted = static_obstacle_voxels_.insert(pointToVoxel(pt.x, pt.y, pt.z));
+      changed = changed || inserted.second;
+    }
+    return changed;
+  }
+
+  pcl::PointCloud<pcl::PointXYZ>::Ptr fuseObstacleClouds(
+    const pcl::PointCloud<pcl::PointXYZ>::Ptr & static_cloud,
+    const pcl::PointCloud<pcl::PointXYZ>::Ptr & dynamic_cloud) const
+  {
+    const bool has_static = static_cloud && !static_cloud->empty();
+    const bool has_dynamic = dynamic_cloud && !dynamic_cloud->empty();
+    if (!has_static && !has_dynamic) {
+      return pcl::PointCloud<pcl::PointXYZ>::Ptr(new pcl::PointCloud<pcl::PointXYZ>);
+    }
+    if (!has_static) {
+      return dynamic_cloud;
+    }
+    if (!has_dynamic) {
+      return static_cloud;
+    }
+    pcl::PointCloud<pcl::PointXYZ>::Ptr combined(new pcl::PointCloud<pcl::PointXYZ>);
+    *combined = *static_cloud + *dynamic_cloud;
+    pcl::VoxelGrid<pcl::PointXYZ> voxel;
+    voxel.setInputCloud(combined);
+    voxel.setLeafSize(voxel_size_, voxel_size_, voxel_size_);
+    pcl::PointCloud<pcl::PointXYZ>::Ptr merged(new pcl::PointCloud<pcl::PointXYZ>);
+    voxel.filter(*merged);
+    return merged;
+  }
+
+  bool loadStaticMapFromFile()
+  {
+    if (!static_layer_enabled_ || static_map_file_.empty()) {
+      return false;
+    }
+    pcl::PointCloud<pcl::PointXYZ>::Ptr loaded(new pcl::PointCloud<pcl::PointXYZ>);
+    const int rc = pcl::io::loadPCDFile<pcl::PointXYZ>(static_map_file_, *loaded);
+    if (rc < 0) {
+      RCLCPP_WARN(
+        get_logger(),
+        "ESDF static map load skipped: could not read '%s' (rc=%d).",
+        static_map_file_.c_str(), rc);
+      return false;
+    }
+
+    static_obstacle_voxels_.clear();
+    static_obstacle_voxels_.reserve(loaded->points.size());
+    for (const auto & pt : loaded->points) {
+      if (!std::isfinite(pt.x) || !std::isfinite(pt.y) || !std::isfinite(pt.z)) {
+        continue;
+      }
+      if (!inBounds(pt.x, pt.y, pt.z)) {
+        continue;
+      }
+      static_obstacle_voxels_.insert(pointToVoxel(pt.x, pt.y, pt.z));
+    }
+    static_obstacle_cloud_ = buildCloudFromVoxelSet(static_obstacle_voxels_);
+    RCLCPP_INFO(
+      get_logger(), "ESDF static map loaded: %zu voxels from %s",
+      static_obstacle_voxels_.size(), static_map_file_.c_str());
+    return true;
+  }
+
+  bool saveStaticMapToFile()
+  {
+    if (!static_layer_enabled_ || static_map_file_.empty()) {
+      return false;
+    }
+    if (!static_obstacle_cloud_ || static_obstacle_cloud_->empty()) {
+      static_obstacle_cloud_ = buildCloudFromVoxelSet(static_obstacle_voxels_);
+    }
+    if (!static_obstacle_cloud_ || static_obstacle_cloud_->empty()) {
+      RCLCPP_WARN(get_logger(), "ESDF static map save skipped: no static voxels.");
+      return false;
+    }
+
+    try {
+      const auto file_path = std::filesystem::path(static_map_file_);
+      if (file_path.has_parent_path()) {
+        std::filesystem::create_directories(file_path.parent_path());
+      }
+    } catch (const std::exception & ex) {
+      RCLCPP_WARN(
+        get_logger(), "ESDF static map save could not create parent directory for %s: %s",
+        static_map_file_.c_str(), ex.what());
+    }
+
+    const int rc = pcl::io::savePCDFileBinary(static_map_file_, *static_obstacle_cloud_);
+    if (rc < 0) {
+      RCLCPP_ERROR(
+        get_logger(), "ESDF static map save failed for %s (rc=%d)",
+        static_map_file_.c_str(), rc);
+      return false;
+    }
+    RCLCPP_INFO(
+      get_logger(), "ESDF static map saved: %zu voxels to %s",
+      static_obstacle_voxels_.size(), static_map_file_.c_str());
+    return true;
+  }
+
+  void updateTemporalObstacles(
+    const pcl::PointCloud<pcl::PointXYZ>::Ptr & downsampled,
+    const rclcpp::Time & stamp)
+  {
+    if (!downsampled) {
+      return;
+    }
+    for (const auto & pt : downsampled->points) {
+      if (!std::isfinite(pt.x) || !std::isfinite(pt.y) || !std::isfinite(pt.z)) {
+        continue;
+      }
+      if (!inBounds(pt.x, pt.y, pt.z)) {
+        continue;
+      }
+      temporal_obstacle_last_seen_[pointToVoxel(pt.x, pt.y, pt.z)] = stamp;
+    }
+
+    if (temporal_obstacle_last_seen_.size() > static_cast<std::size_t>(max_temporal_obstacles_)) {
+      RCLCPP_WARN_THROTTLE(
+        get_logger(), *get_clock(), 2000,
+        "ESDF temporal obstacle cache exceeded %d voxels (%zu), clearing cache.",
+        max_temporal_obstacles_, temporal_obstacle_last_seen_.size());
+      temporal_obstacle_last_seen_.clear();
+    }
+  }
+
+  void pruneTemporalObstacles(const rclcpp::Time & now_time)
+  {
+    if (obstacle_decay_sec_ <= 0.0) {
+      return;
+    }
+    for (auto it = temporal_obstacle_last_seen_.begin(); it != temporal_obstacle_last_seen_.end();) {
+      const double age = (now_time - it->second).seconds();
+      if (age > obstacle_decay_sec_) {
+        it = temporal_obstacle_last_seen_.erase(it);
+      } else {
+        ++it;
+      }
+    }
   }
 
   void markObservedFree(double x, double y, double z)
@@ -277,28 +506,38 @@ private:
     voxel.filter(*downsampled);
 
     {
+      const rclcpp::Time map_update_now = now();
       std::lock_guard<std::mutex> lock(kdtree_mutex_);
-      if (accumulate_map_ && obstacle_cloud_ && !obstacle_cloud_->empty()) {
-        pcl::PointCloud<pcl::PointXYZ>::Ptr combined(new pcl::PointCloud<pcl::PointXYZ>);
-        *combined = *obstacle_cloud_ + *downsampled;
-        pcl::VoxelGrid<pcl::PointXYZ> voxel_merge;
-        voxel_merge.setInputCloud(combined);
-        voxel_merge.setLeafSize(voxel_size_, voxel_size_, voxel_size_);
-        pcl::PointCloud<pcl::PointXYZ>::Ptr merged(new pcl::PointCloud<pcl::PointXYZ>);
-        voxel_merge.filter(*merged);
-        obstacle_cloud_ = merged;
-      } else {
-        obstacle_cloud_ = downsampled;
-        if (!accumulate_map_) {
-          observed_free_voxels_.clear();
-          observed_occupied_voxels_.clear();
+      if (static_layer_enabled_ && update_static_from_cloud_) {
+        if (updateStaticObstacles(downsampled)) {
+          static_obstacle_cloud_ = buildCloudFromVoxelSet(static_obstacle_voxels_);
         }
       }
+
+      pcl::PointCloud<pcl::PointXYZ>::Ptr dynamic_cloud(new pcl::PointCloud<pcl::PointXYZ>);
+      if (accumulate_map_) {
+        updateTemporalObstacles(downsampled, map_update_now);
+        if (obstacle_decay_sec_ > 0.0) {
+          pruneTemporalObstacles(map_update_now);
+        }
+        dynamic_cloud = buildCloudFromTemporalObstacles();
+      } else {
+        dynamic_cloud = downsampled;
+        temporal_obstacle_last_seen_.clear();
+        observed_free_voxels_.clear();
+        observed_occupied_voxels_.clear();
+      }
+
+      obstacle_cloud_ = fuseObstacleClouds(static_obstacle_cloud_, dynamic_cloud);
       updateObservedSpace(sensor_x, sensor_y, sensor_z, downsampled);
-      kdtree_.setInputCloud(obstacle_cloud_);
-      map_ready_ = obstacle_cloud_->size() > 0;
+      if (obstacle_cloud_ && !obstacle_cloud_->empty()) {
+        kdtree_.setInputCloud(obstacle_cloud_);
+        map_ready_ = true;
+      } else {
+        map_ready_ = false;
+      }
       if (map_ready_) {
-        last_map_update_time_ = now();
+        last_map_update_time_ = map_update_now;
       }
     }
 
@@ -417,6 +656,13 @@ private:
   double esdf_slice_height_;
   double esdf_slice_thickness_;
   bool accumulate_map_;
+  double obstacle_decay_sec_;
+  int max_temporal_obstacles_;
+  bool static_layer_enabled_;
+  std::string static_map_file_;
+  bool load_static_map_on_start_;
+  bool save_static_map_on_shutdown_;
+  bool update_static_from_cloud_;
   bool unknown_is_occupied_;
   int max_raycast_points_per_cloud_;
   int raycast_decimation_;
@@ -434,6 +680,9 @@ private:
   std::mutex kdtree_mutex_;
   pcl::PointCloud<pcl::PointXYZ>::Ptr obstacle_cloud_;
   pcl::KdTreeFLANN<pcl::PointXYZ> kdtree_;
+  std::unordered_set<VoxelKey, VoxelKeyHash> static_obstacle_voxels_;
+  pcl::PointCloud<pcl::PointXYZ>::Ptr static_obstacle_cloud_;
+  std::unordered_map<VoxelKey, rclcpp::Time, VoxelKeyHash> temporal_obstacle_last_seen_;
   std::unordered_set<VoxelKey, VoxelKeyHash> observed_free_voxels_;
   std::unordered_set<VoxelKey, VoxelKeyHash> observed_occupied_voxels_;
   bool map_ready_{false};

@@ -221,7 +221,7 @@ def generate_launch_description():
             {"enable_topic": "/x500_depth/enable"},
             {"waypoint_tolerance": 0.15},
             {"max_linear_speed": 1.2},
-            {"max_angular_speed": 0.8},
+            {"max_angular_speed": 1.2},
             {"linear_kp": 1.6},
             {"min_linear_speed": 0.20},
             {"rotate_to_heading_before_move": True},

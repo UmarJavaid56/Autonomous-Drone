@@ -19,6 +19,13 @@ esdf_server:
     esdf_slice_height: 0.0   # bottom of visualized band (m)
     esdf_slice_thickness: 3.0  # show voxels from slice_height to slice_height+thickness (0 = thin slice at z=0 only)
     accumulate_map: true   # merge new scans into persistent map so voxels/obstacles linger for path planning
+    obstacle_decay_sec: 12.0  # occupied voxels expire after this many seconds (0 disables decay)
+    max_temporal_obstacles: 600000  # safety bound for temporal occupied-voxel cache
+    static_layer_enabled: false  # if true, fuse a persisted static obstacle layer with live/decaying obstacles
+    static_map_file: ""  # path to static .pcd map; configured from launch args
+    load_static_map_on_start: false  # load static_map_file at node startup
+    save_static_map_on_shutdown: false  # save static_map_file when node exits
+    update_static_from_cloud: false  # if true, add incoming cloud points to static layer (mapping mode)
     unknown_is_occupied: true  # if query voxel has not been observed by depth rays, report invalid (planner treats as collision)
     max_raycast_points_per_cloud: 300  # cap per-cloud rays used to build observed free-space
     raycast_decimation: 4  # only raycast every Nth cloud to keep CPU usage bounded
