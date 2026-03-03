@@ -37,11 +37,11 @@ def generate_launch_description():
     rviz = LaunchConfiguration("rviz", default="true")
     enable_autonomy = LaunchConfiguration("enable_autonomy", default="true")
     auto_takeoff = LaunchConfiguration("auto_takeoff", default="false")
-    unknown_is_occupied = LaunchConfiguration("unknown_is_occupied", default="true")
+    unknown_is_occupied = LaunchConfiguration("unknown_is_occupied", default="false")
     max_approx_goal_distance = LaunchConfiguration("max_approx_goal_distance", default="0.8")
-    safety_margin = LaunchConfiguration("safety_margin", default="0.18")
+    safety_margin = LaunchConfiguration("safety_margin", default="0.32")
     adaptive_safety_margin = LaunchConfiguration("adaptive_safety_margin", default="true")
-    min_safety_margin = LaunchConfiguration("min_safety_margin", default="0.10")
+    min_safety_margin = LaunchConfiguration("min_safety_margin", default="0.08")
     safety_margin_relax_step = LaunchConfiguration("safety_margin_relax_step", default="0.02")
     no_solution_before_relax = LaunchConfiguration("no_solution_before_relax", default="4")
     success_before_tighten = LaunchConfiguration("success_before_tighten", default="4")
@@ -49,7 +49,7 @@ def generate_launch_description():
     collision_check_resolution_m = LaunchConfiguration("collision_check_resolution_m", default="0.10")
     postcheck_relax_step = LaunchConfiguration("postcheck_relax_step", default="0.02")
     start_exempt_radius = LaunchConfiguration("start_exempt_radius", default="0.12")
-    consecutive_failures_before_hover = LaunchConfiguration("consecutive_failures_before_hover", default="3")
+    consecutive_failures_before_hover = LaunchConfiguration("consecutive_failures_before_hover", default="8")
     hover_on_planning_failure = LaunchConfiguration("hover_on_planning_failure", default="true")
     planner_z_min = LaunchConfiguration("planner_z_min", default="-0.2")
     planner_z_max = LaunchConfiguration("planner_z_max", default="1.25")
@@ -58,7 +58,7 @@ def generate_launch_description():
     cmd_vel_body_x_gain = LaunchConfiguration("cmd_vel_body_x_gain", default="1.0")
     cmd_vel_body_y_gain = LaunchConfiguration("cmd_vel_body_y_gain", default="1.0")
     max_path_age_sec = LaunchConfiguration("max_path_age_sec", default="1.5")
-    min_consecutive_nonempty_paths = LaunchConfiguration("min_consecutive_nonempty_paths", default="6")
+    min_consecutive_nonempty_paths = LaunchConfiguration("min_consecutive_nonempty_paths", default="3")
     hard_stop_on_no_path = LaunchConfiguration("hard_stop_on_no_path", default="true")
     hard_stop_drift_guard = LaunchConfiguration("hard_stop_drift_guard", default="true")
     hard_stop_drift_guard_pos_threshold = LaunchConfiguration("hard_stop_drift_guard_pos_threshold", default="0.02")
@@ -221,14 +221,14 @@ def generate_launch_description():
             {"enable_topic": "/x500_depth/enable"},
             {"waypoint_tolerance": 0.15},
             {"max_linear_speed": 1.2},
-            {"max_angular_speed": 1.2},
+            {"max_angular_speed": 0.8},
             {"linear_kp": 1.6},
             {"min_linear_speed": 0.20},
             {"rotate_to_heading_before_move": True},
-            {"heading_align_threshold_rad": 0.35},
-            {"heading_hard_stop_threshold_rad": 1.0},
-            {"min_heading_speed_factor": 0.20},
-            {"min_xy_dist_for_heading_align": 0.10},
+            {"heading_align_threshold_rad": 0.8},
+            {"heading_hard_stop_threshold_rad": 2.6},
+            {"min_heading_speed_factor": 0.45},
+            {"min_xy_dist_for_heading_align": 0.4},
             {"cmd_vel_is_body_frame": True},
             {"cmd_vel_body_x_gain": cmd_vel_body_x_gain},
             {"cmd_vel_body_y_gain": cmd_vel_body_y_gain},
@@ -250,7 +250,7 @@ def generate_launch_description():
             {"min_altitude_for_xy_motion": min_altitude_for_xy_motion},
             {"enforce_min_target_altitude": True},
             {"min_target_altitude": min_altitude_for_xy_motion},
-            {"takeoff_altitude_tolerance": 0.05},
+            {"takeoff_altitude_tolerance": 0.12},
             {"takeoff_vertical_speed": 0.6},
             {"takeoff_vertical_kp": 1.2},
         ],
@@ -417,7 +417,7 @@ def generate_launch_description():
         ),
         DeclareLaunchArgument(
             "safety_margin",
-            default_value="0.18",
+            default_value="0.32",
             description="Nominal ESDF clearance added to drone_radius (meters).",
         ),
         DeclareLaunchArgument(
@@ -427,7 +427,7 @@ def generate_launch_description():
         ),
         DeclareLaunchArgument(
             "min_safety_margin",
-            default_value="0.10",
+            default_value="0.08",
             description="Lower bound for adaptive safety margin relaxation.",
         ),
         DeclareLaunchArgument(
@@ -467,7 +467,7 @@ def generate_launch_description():
         ),
         DeclareLaunchArgument(
             "consecutive_failures_before_hover",
-            default_value="3",
+            default_value="8",
             description="Number of consecutive planning failures before publishing empty path (hover).",
         ),
         DeclareLaunchArgument(
@@ -477,7 +477,7 @@ def generate_launch_description():
         ),
         DeclareLaunchArgument(
             "unknown_is_occupied",
-            default_value="true",
+            default_value="false",
             description="If true, planner treats unknown space as occupied (safe mapped mode). If false, unknown is allowed (explore mode).",
         ),
         DeclareLaunchArgument(
