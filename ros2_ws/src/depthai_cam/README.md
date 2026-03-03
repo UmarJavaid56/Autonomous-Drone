@@ -26,7 +26,7 @@ depthai_cam/
 │   ├── x500_base/       # x500 airframe components
 │   └── x500_depth/      # x500 with OAK-D Lite
 ├── worlds/              # Gazebo worlds
-│   └── depthai_test.world    # Test world with colored objects
+│   └── depthai_test.world    # Maze-style world for navigation tests
 └── config/              # Configuration files
     └── x500_depth.rviz       # RViz visualization config
 ```

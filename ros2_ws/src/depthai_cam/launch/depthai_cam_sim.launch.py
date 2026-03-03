@@ -10,7 +10,7 @@ This launch file:
 The simulation includes:
 - x500 quadcopter with velocity control
 - OAK-D Lite camera (RGB + Depth + Point Cloud)
-- Test environment with colored objects for vision testing
+- Maze-style obstacle world for autonomous navigation testing
 
 Velocity Control:
 - Use the keyboard_teleop node to control the drone

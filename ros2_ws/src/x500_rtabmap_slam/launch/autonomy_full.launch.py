@@ -39,7 +39,7 @@ def generate_launch_description():
     auto_takeoff = LaunchConfiguration("auto_takeoff", default="false")
     unknown_is_occupied = LaunchConfiguration("unknown_is_occupied", default="false")
     max_approx_goal_distance = LaunchConfiguration("max_approx_goal_distance", default="0.8")
-    safety_margin = LaunchConfiguration("safety_margin", default="0.32")
+    safety_margin = LaunchConfiguration("safety_margin", default="0.15")
     adaptive_safety_margin = LaunchConfiguration("adaptive_safety_margin", default="true")
     min_safety_margin = LaunchConfiguration("min_safety_margin", default="0.08")
     safety_margin_relax_step = LaunchConfiguration("safety_margin_relax_step", default="0.02")

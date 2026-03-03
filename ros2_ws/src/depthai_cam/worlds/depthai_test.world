@@ -60,74 +60,208 @@
       </link>
     </model>
 
-    <model name="red_cube">
-      <pose>2 0 0.5 0 0 0</pose>
+    <!-- Start marker -->
+    <model name="start_zone_marker">
+      <static>true</static>
+      <pose>0 0 0.01 0 0 0</pose>
       <link name="link">
-        <inertial><mass>1.0</mass></inertial>
         <visual name="visual">
           <geometry>
-            <box><size>1 1 1</size></box>
+            <box><size>1.4 1.4 0.02</size></box>
           </geometry>
           <material>
-            <ambient>1 0 0 1</ambient>
-            <diffuse>1 0 0 1</diffuse>
+            <ambient>0.1 0.5 0.1 1</ambient>
+            <diffuse>0.2 0.8 0.2 1</diffuse>
           </material>
         </visual>
         <collision name="collision">
           <geometry>
-            <box><size>1 1 1</size></box>
+            <box><size>1.4 1.4 0.02</size></box>
           </geometry>
         </collision>
       </link>
     </model>
 
-    <model name="green_cylinder">
-      <pose>0 2 0.5 0 0 0</pose>
+    <!-- Compact maze boundary (about half previous footprint) -->
+    <model name="maze_wall_north">
+      <static>true</static>
+      <pose>5.5 2.6 1.0 0 0 0</pose>
       <link name="link">
-        <inertial><mass>1.0</mass></inertial>
         <visual name="visual">
-          <geometry>
-            <cylinder>
-              <radius>0.4</radius>
-              <length>1.0</length>
-            </cylinder>
-          </geometry>
-          <material>
-            <ambient>0 1 0 1</ambient>
-            <diffuse>0 1 0 1</diffuse>
-          </material>
+          <geometry><box><size>13.0 0.2 2.0</size></box></geometry>
+          <material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.5 0.5 0.5 1</diffuse></material>
         </visual>
         <collision name="collision">
-          <geometry>
-            <cylinder>
-              <radius>0.4</radius>
-              <length>1.0</length>
-            </cylinder>
-          </geometry>
+          <geometry><box><size>13.0 0.2 2.0</size></box></geometry>
         </collision>
       </link>
     </model>
 
-    <model name="blue_sphere">
-      <pose>-2 0 0.5 0 0 0</pose>
+    <model name="maze_wall_south">
+      <static>true</static>
+      <pose>5.5 -2.6 1.0 0 0 0</pose>
       <link name="link">
-        <inertial><mass>1.0</mass></inertial>
+        <visual name="visual">
+          <geometry><box><size>13.0 0.2 2.0</size></box></geometry>
+          <material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.5 0.5 0.5 1</diffuse></material>
+        </visual>
+        <collision name="collision">
+          <geometry><box><size>13.0 0.2 2.0</size></box></geometry>
+        </collision>
+      </link>
+    </model>
+
+    <model name="maze_wall_west">
+      <static>true</static>
+      <pose>-1.0 0 1.0 0 0 0</pose>
+      <link name="link">
+        <visual name="visual">
+          <geometry><box><size>0.2 5.2 2.0</size></box></geometry>
+          <material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.5 0.5 0.5 1</diffuse></material>
+        </visual>
+        <collision name="collision">
+          <geometry><box><size>0.2 5.2 2.0</size></box></geometry>
+        </collision>
+      </link>
+    </model>
+
+    <model name="maze_wall_east">
+      <static>true</static>
+      <pose>12.0 0 1.0 0 0 0</pose>
+      <link name="link">
+        <visual name="visual">
+          <geometry><box><size>0.2 5.2 2.0</size></box></geometry>
+          <material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.5 0.5 0.5 1</diffuse></material>
+        </visual>
+        <collision name="collision">
+          <geometry><box><size>0.2 5.2 2.0</size></box></geometry>
+        </collision>
+      </link>
+    </model>
+
+    <!-- First half: classic wall maze -->
+    <model name="maze_half_v1">
+      <static>true</static>
+      <pose>1.2 0.95 1.0 0 0 0</pose>
+      <link name="link">
+        <visual name="visual">
+          <geometry><box><size>0.2 3.3 2.0</size></box></geometry>
+          <material><ambient>0.55 0.22 0.22 1</ambient><diffuse>0.8 0.3 0.3 1</diffuse></material>
+        </visual>
+        <collision name="collision"><geometry><box><size>0.2 3.3 2.0</size></box></geometry></collision>
+      </link>
+    </model>
+
+    <model name="maze_half_v2">
+      <static>true</static>
+      <pose>2.8 -0.95 1.0 0 0 0</pose>
+      <link name="link">
+        <visual name="visual">
+          <geometry><box><size>0.2 3.3 2.0</size></box></geometry>
+          <material><ambient>0.22 0.35 0.55 1</ambient><diffuse>0.3 0.5 0.8 1</diffuse></material>
+        </visual>
+        <collision name="collision"><geometry><box><size>0.2 3.3 2.0</size></box></geometry></collision>
+      </link>
+    </model>
+
+    <model name="maze_half_v3">
+      <static>true</static>
+      <pose>4.4 0.95 1.0 0 0 0</pose>
+      <link name="link">
+        <visual name="visual">
+          <geometry><box><size>0.2 3.3 2.0</size></box></geometry>
+          <material><ambient>0.55 0.22 0.22 1</ambient><diffuse>0.8 0.3 0.3 1</diffuse></material>
+        </visual>
+        <collision name="collision"><geometry><box><size>0.2 3.3 2.0</size></box></geometry></collision>
+      </link>
+    </model>
+
+    <model name="maze_half_v4">
+      <static>true</static>
+      <pose>6.0 -0.95 1.0 0 0 0</pose>
+      <link name="link">
+        <visual name="visual">
+          <geometry><box><size>0.2 3.3 2.0</size></box></geometry>
+          <material><ambient>0.22 0.35 0.55 1</ambient><diffuse>0.3 0.5 0.8 1</diffuse></material>
+        </visual>
+        <collision name="collision"><geometry><box><size>0.2 3.3 2.0</size></box></geometry></collision>
+      </link>
+    </model>
+
+    <!-- Second half: different shape (cylindrical chicane) -->
+    <model name="chicane_pillar_1">
+      <static>true</static>
+      <pose>7.4 0.9 1.0 0 0 0</pose>
+      <link name="link">
+        <visual name="visual">
+          <geometry><cylinder><radius>0.32</radius><length>2.0</length></cylinder></geometry>
+          <material><ambient>0.85 0.55 0.15 1</ambient><diffuse>0.95 0.65 0.2 1</diffuse></material>
+        </visual>
+        <collision name="collision">
+          <geometry><cylinder><radius>0.32</radius><length>2.0</length></cylinder></geometry>
+        </collision>
+      </link>
+    </model>
+
+    <model name="chicane_pillar_2">
+      <static>true</static>
+      <pose>8.6 -0.9 1.0 0 0 0</pose>
+      <link name="link">
+        <visual name="visual">
+          <geometry><cylinder><radius>0.32</radius><length>2.0</length></cylinder></geometry>
+          <material><ambient>0.2 0.6 0.85 1</ambient><diffuse>0.25 0.7 0.95 1</diffuse></material>
+        </visual>
+        <collision name="collision">
+          <geometry><cylinder><radius>0.32</radius><length>2.0</length></cylinder></geometry>
+        </collision>
+      </link>
+    </model>
+
+    <model name="chicane_pillar_3">
+      <static>true</static>
+      <pose>9.8 0.9 1.0 0 0 0</pose>
+      <link name="link">
+        <visual name="visual">
+          <geometry><cylinder><radius>0.32</radius><length>2.0</length></cylinder></geometry>
+          <material><ambient>0.85 0.55 0.15 1</ambient><diffuse>0.95 0.65 0.2 1</diffuse></material>
+        </visual>
+        <collision name="collision">
+          <geometry><cylinder><radius>0.32</radius><length>2.0</length></cylinder></geometry>
+        </collision>
+      </link>
+    </model>
+
+    <model name="chicane_pillar_4">
+      <static>true</static>
+      <pose>10.8 -0.7 1.0 0 0 0</pose>
+      <link name="link">
+        <visual name="visual">
+          <geometry><cylinder><radius>0.32</radius><length>2.0</length></cylinder></geometry>
+          <material><ambient>0.2 0.6 0.85 1</ambient><diffuse>0.25 0.7 0.95 1</diffuse></material>
+        </visual>
+        <collision name="collision">
+          <geometry><cylinder><radius>0.32</radius><length>2.0</length></cylinder></geometry>
+        </collision>
+      </link>
+    </model>
+
+    <!-- Finish marker -->
+    <model name="finish_zone_marker">
+      <static>true</static>
+      <pose>11.1 0 0.01 0 0 0</pose>
+      <link name="link">
         <visual name="visual">
           <geometry>
-            <sphere>
-              <radius>0.5</radius>
-            </sphere>
+            <box><size>1.4 1.4 0.02</size></box>
           </geometry>
           <material>
-            <ambient>0 0 1 1</ambient>
-            <diffuse>0 0 1 1</diffuse>
+            <ambient>0.1 0.2 0.7 1</ambient>
+            <diffuse>0.2 0.4 0.9 1</diffuse>
           </material>
         </visual>
         <collision name="collision">
           <geometry>
-            <sphere>
-              <radius>0.5</radius>
-            </sphere>
+            <box><size>1.4 1.4 0.02</size></box>
           </geometry>
         </collision>
       </link>
