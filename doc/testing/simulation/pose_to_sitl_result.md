@@ -18,10 +18,10 @@ This report demonstrates the successful integration and testing of a Visual-Iner
 
 ```
 ┌─────────────────────┐
-│  Pose Publisher     │  Simulates ORB-SLAM3 VIO output
+│  Pose Publisher     │  Simulates vision VIO output
 │  (Python Script)    │  Publishing circular trajectory
 └──────────┬──────────┘
-           │ /orbslam3/pose topic
+           │ /vision_pose/pose topic
            │ (geometry_msgs/PoseStamped @ 30 Hz)
            ↓
 ┌─────────────────────┐
@@ -68,7 +68,7 @@ All components successfully initialized:
 
 ```bash
 ✓ VIO SITL Test Node started
-  - Subscribed to: /orbslam3/pose
+  - Subscribed to: /vision_pose/pose
   - UDP target: 127.0.0.1:14550
   - Status: RUNNING
 
@@ -88,16 +88,16 @@ All components successfully initialized:
 **Sample Output from VIO Test Node:**
 
 ```
-[INFO] [1765239146.505343] [vio_sitl_test]: ORB-SLAM3 pose: pos [x=-4.193 y=-2.724 z=-2.000], 
+[INFO] [1765239146.505343] [vio_sitl_test]: Vision pose: pos [x=-4.193 y=-2.724 z=-2.000], 
                                              ori [x=0.000 y=0.000 z=-0.477 w=0.879]
 
-[INFO] [1765239146.538649] [vio_sitl_test]: ORB-SLAM3 pose: pos [x=-4.099 y=-2.863 z=-2.000], 
+[INFO] [1765239146.538649] [vio_sitl_test]: Vision pose: pos [x=-4.099 y=-2.863 z=-2.000], 
                                              ori [x=0.000 y=0.000 z=-0.462 w=0.887]
 
-[INFO] [1765239146.572151] [vio_sitl_test]: ORB-SLAM3 pose: pos [x=-4.001 y=-2.998 z=-2.000], 
+[INFO] [1765239146.572151] [vio_sitl_test]: Vision pose: pos [x=-4.001 y=-2.998 z=-2.000], 
                                              ori [x=0.000 y=0.000 z=-0.447 w=0.894]
 
-[INFO] [1765239146.605167] [vio_sitl_test]: ORB-SLAM3 pose: pos [x=-3.900 y=-3.129 z=-2.000], 
+[INFO] [1765239146.605167] [vio_sitl_test]: Vision pose: pos [x=-3.900 y=-3.129 z=-2.000], 
                                              ori [x=0.000 y=0.000 z=-0.433 w=0.902]
 ```
 
@@ -251,7 +251,7 @@ EKF2_EV_DELAY = 0   (No artificial delay for SITL)
 
 2. **Real Hardware Integration**
    - Deploy on OAK-D camera
-   - Integrate ORB-SLAM3
+   - Integrate RTAB-Map (or other vision pose source)
    - Test with actual drone hardware
 
 3. **Performance Optimization**
@@ -290,8 +290,8 @@ python3 publish_ned_pose.py --trajectory circle
 ```bash
 # Check ROS2 topics
 ros2 topic list
-ros2 topic hz /orbslam3/pose
-ros2 topic echo /orbslam3/pose
+ros2 topic hz /vision_pose/pose
+ros2 topic echo /vision_pose/pose
 
 # Monitor system processes
 ps aux | grep -E "px4|vio_sitl"

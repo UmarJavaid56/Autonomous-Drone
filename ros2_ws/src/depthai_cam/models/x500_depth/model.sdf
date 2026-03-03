@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<sdf version='1.9'>
+  <model name='x500_depth'>
+    <include merge='true'>
+      <uri>model://x500</uri>
+    </include>
+    <include merge='true'>
+      <uri>model://OakD-Lite</uri>
+      <pose>.12 .03 .242 0 0 0</pose>
+    </include>
+    <joint name="CameraJoint" type="fixed">
+      <parent>base_link</parent>
+      <child>camera_link</child>
+      <pose relative_to="base_link">.12 .03 .242 0 0 0</pose>
+    </joint>
+
+    <!-- Pose Publisher Plugin - Publishes TF transforms -->
+    <plugin filename="gz-sim-pose-publisher-system" name="gz::sim::systems::PosePublisher">
+      <publish_link_pose>true</publish_link_pose>
+      <publish_sensor_pose>true</publish_sensor_pose>
+      <publish_collision_pose>false</publish_collision_pose>
+      <publish_visual_pose>false</publish_visual_pose>
+      <publish_nested_model_pose>true</publish_nested_model_pose>
+      <use_pose_vector_msg>true</use_pose_vector_msg>
+      <update_frequency>30</update_frequency>
+    </plugin>
+
+    <!-- Joint State Publisher Plugin - Publishes joint states -->
+    <plugin filename="gz-sim-joint-state-publisher-system" name="gz::sim::systems::JointStatePublisher">
+      <joint_name>rotor_0_joint</joint_name>
+      <joint_name>rotor_1_joint</joint_name>
+      <joint_name>rotor_2_joint</joint_name>
+      <joint_name>rotor_3_joint</joint_name>
+      <joint_name>CameraJoint</joint_name>
+      <update_rate>30</update_rate>
+    </plugin>
+
+    <!-- Odometry Publisher Plugin - Publishes odometry and gazebo_odom->base_link TF -->
+    <!-- Note: Frame renamed to 'gazebo_odom' to avoid conflicts with RTAB-Map's 'odom' frame -->
+    <!-- RTAB-Map publishes map->odom (visual SLAM), Gazebo publishes gazebo_odom->base_link (simulation odometry) -->
+    <plugin filename="gz-sim-odometry-publisher-system" name="gz::sim::systems::OdometryPublisher">
+      <odom_frame>gazebo_odom</odom_frame>
+      <robot_base_frame>base_link</robot_base_frame>
+      <publish_odom_tf>true</publish_odom_tf>
+      <odom_publish_frequency>30</odom_publish_frequency>
+      <odom_topic>odom</odom_topic>
+      <tf_topic>tf</tf_topic>
+      <dimensions>3</dimensions>
+    </plugin>
+  </model>
+</sdf>

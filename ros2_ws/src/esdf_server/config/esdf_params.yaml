@@ -1,0 +1,33 @@
+# ESDF server parameters (OctoMap fallback backend)
+# Input: PointCloud2 from RTAB-Map or depth camera; output: GetDistance service
+
+esdf_server:
+  ros__parameters:
+    point_cloud_topic: "/oak_d_lite/depth/points"
+    map_frame_id: "map"
+    voxel_size: 0.05   # 5 cm voxels (balance accuracy and memory)
+    max_range: 5.0
+    min_range: 0.4
+    # Indoor map bounds (finite)
+    x_min: -10.0
+    x_max: 10.0
+    y_min: -10.0
+    y_max: 10.0
+    z_min: -0.5
+    z_max: 3.0
+    publish_esdf_slice: true
+    esdf_slice_height: 0.0   # bottom of visualized band (m)
+    esdf_slice_thickness: 3.0  # show voxels from slice_height to slice_height+thickness (0 = thin slice at z=0 only)
+    accumulate_map: true   # merge new scans into persistent map so voxels/obstacles linger for path planning
+    obstacle_decay_sec: 12.0  # occupied voxels expire after this many seconds (0 disables decay)
+    max_temporal_obstacles: 600000  # safety bound for temporal occupied-voxel cache
+    static_layer_enabled: false  # if true, fuse a persisted static obstacle layer with live/decaying obstacles
+    static_map_file: ""  # path to static .pcd map; configured from launch args
+    load_static_map_on_start: false  # load static_map_file at node startup
+    save_static_map_on_shutdown: false  # save static_map_file when node exits
+    update_static_from_cloud: false  # if true, add incoming cloud points to static layer (mapping mode)
+    unknown_is_occupied: true  # if query voxel has not been observed by depth rays, report invalid (planner treats as collision)
+    max_raycast_points_per_cloud: 300  # cap per-cloud rays used to build observed free-space
+    raycast_decimation: 4  # only raycast every Nth cloud to keep CPU usage bounded
+    raycast_step_m: 0.10  # ray march step when marking observed-free voxels
+    max_observed_voxels: 1200000  # soft cache bound for observed-free/occupied voxel sets

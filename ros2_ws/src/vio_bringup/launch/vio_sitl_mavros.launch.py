@@ -8,8 +8,8 @@ def generate_launch_description():
         # Launch arguments
         DeclareLaunchArgument(
             'pose_topic',
-            default_value='/orbslam3/pose',
-            description='Topic to subscribe to for pose data'
+            default_value='/vision_pose/pose',
+            description='Topic for vision pose (PoseStamped, e.g. from RTAB-Map or adapter)'
         ),
         DeclareLaunchArgument(
             'fcu_url',

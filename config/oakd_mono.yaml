@@ -27,7 +27,7 @@ Camera.k3: 0.0
 Camera.fps: 30.0
 
 # Color order: 1 = RGB, 0 = BGR
-# depthai gives BGR frames through OpenCV by default, but ORB-SLAM3 just uses this as a flag.
+# depthai gives BGR frames through OpenCV by default.
 Camera.RGB: 1
 
 # Close/far plane for visualization (meters)

@@ -1,20 +1,20 @@
 ############################
 # ROS2 Workspace Ignore
 ############################
+# Build artifacts (colcon build output)
 ros2_ws/build/
 ros2_ws/install/
 ros2_ws/log/
 ros2_ws/.colcon/
 ros2_ws/.workspace/
 
-############################
-# ORB-SLAM3 Ignore
-############################
-ros2_ws/src/external/ORB_SLAM3/build/
-ros2_ws/src/external/ORB_SLAM3/lib/
-ros2_ws/src/external/ORB_SLAM3/CMakeCache.txt
-ros2_ws/src/external/ORB_SLAM3/CMakeFiles/
-ros2_ws/src/external/ORB_SLAM3/ORBvoc.txt
+# Top-level build artifacts (should not be tracked)
+build/
+install/
+log/
+
+# Python egg-info directories
+*.egg-info/
 
 ############################
 # Pangolin Ignore
@@ -34,6 +34,9 @@ __pycache__/
 *.DS_Store
 *.vscode/
 *.idea/
+# Python virtual environment
+venv/
+.venv/
 
 ############################
 # CMake / Object Files
@@ -45,14 +48,9 @@ __pycache__/
 *.cache
 
 ############################
-# Logs / Temp
+# Workspace Generated Files
 ############################
 *.log
 *.tmp
 *.bak
-
-############################
-# GitHub Copilot
-############################
-.github/copilot-instructions.md
-
+.ros/

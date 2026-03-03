@@ -1,0 +1,720 @@
+/**
+ * 3D RRT* global planner using OMPL and ESDF collision checking.
+ * State space: (x, y, z, yaw). Runs asynchronously at ~1-3 Hz; does not block PX4 offboard.
+ */
+
+#include <chrono>
+#include <algorithm>
+#include <memory>
+#include <string>
+#include <thread>
+#include <mutex>
+#include <cmath>
+#include <limits>
+#include <future>
+
+#include <rclcpp/rclcpp.hpp>
+#include <rclcpp/executors.hpp>
+#include <nav_msgs/msg/path.hpp>
+#include <geometry_msgs/msg/pose_stamped.hpp>
+#include <geometry_msgs/msg/point.hpp>
+#include <visualization_msgs/msg/marker_array.hpp>
+#include <std_msgs/msg/bool.hpp>
+#include <tf2_ros/buffer.h>
+#include <tf2_ros/transform_listener.h>
+#include <tf2_geometry_msgs/tf2_geometry_msgs.hpp>
+#include <esdf_msgs/srv/get_distance.hpp>
+
+#include <ompl/base/SpaceInformation.h>
+#include <ompl/base/spaces/RealVectorStateSpace.h>
+#include <ompl/base/spaces/SO2StateSpace.h>
+#include <ompl/base/StateSpace.h>  // CompoundStateSpace
+#include <ompl/base/StateValidityChecker.h>
+#include <ompl/base/State.h>
+#include <ompl/base/goals/GoalState.h>
+#include <ompl/base/PlannerTerminationCondition.h>
+#include <ompl/geometric/planners/rrt/RRTstar.h>
+#include <ompl/geometric/PathGeometric.h>
+
+namespace ob = ompl::base;
+namespace og = ompl::geometric;
+
+namespace rrt_star_planner
+{
+
+class EsdfStateValidityChecker : public ob::StateValidityChecker
+{
+public:
+  EsdfStateValidityChecker(
+    const rclcpp::Client<esdf_msgs::srv::GetDistance>::SharedPtr & client,
+    const ob::SpaceInformationPtr & si,
+    double drone_radius,
+    double safety_margin)
+  : ob::StateValidityChecker(si),
+    client_(client),
+    drone_radius_(drone_radius),
+    safety_margin_(safety_margin),
+    exempt_start_x_(0), exempt_start_y_(0), exempt_start_z_(0),
+    exempt_start_set_(false)
+  {}
+
+  void setExemptStart(double x, double y, double z)
+  {
+    exempt_start_x_ = x;
+    exempt_start_y_ = y;
+    exempt_start_z_ = z;
+    exempt_start_set_ = true;
+  }
+
+  bool isValid(const ob::State * state) const override
+  {
+    auto * comp = state->as<ob::CompoundStateSpace::StateType>();
+    const auto * pos = comp->as<ob::RealVectorStateSpace::StateType>(0);
+    double x = (*pos)[0], y = (*pos)[1], z = (*pos)[2];
+
+    if (exempt_start_set_) {
+      double dx = x - exempt_start_x_, dy = y - exempt_start_y_, dz = z - exempt_start_z_;
+      if (dx * dx + dy * dy + dz * dz < 0.01 * 0.01) {
+        return true;
+      }
+    }
+
+    auto request = std::make_shared<esdf_msgs::srv::GetDistance::Request>();
+    request->x = x;
+    request->y = y;
+    request->z = z;
+
+    if (!client_->service_is_ready()) {
+      return false;
+    }
+
+    auto result_future = client_->async_send_request(request);
+    if (result_future.wait_for(std::chrono::milliseconds(100)) != std::future_status::ready) {
+      return false;
+    }
+
+    auto response = result_future.get();
+    if (!response->valid) {
+      return false;  // outside map or map not ready
+    }
+    return response->distance > (drone_radius_ + safety_margin_);
+  }
+
+private:
+  rclcpp::Client<esdf_msgs::srv::GetDistance>::SharedPtr client_;
+  double drone_radius_;
+  double safety_margin_;
+  mutable double exempt_start_x_, exempt_start_y_, exempt_start_z_;
+  mutable bool exempt_start_set_;
+};
+
+class RRTStarPlannerNode : public rclcpp::Node
+{
+public:
+  explicit RRTStarPlannerNode(const rclcpp::NodeOptions & options = rclcpp::NodeOptions())
+  : Node("rrt_star_planner", options),
+    tf_buffer_(get_clock()),
+    tf_listener_(tf_buffer_)
+  {
+    declare_parameter<std::string>("map_frame_id", "map");
+    declare_parameter<std::string>("base_frame_id", "base_link");
+    declare_parameter<double>("drone_radius", 0.25);
+    declare_parameter<double>("safety_margin", 0.15);
+    declare_parameter<bool>("adaptive_safety_margin", true);
+    declare_parameter<double>("min_safety_margin", 0.08);
+    declare_parameter<double>("safety_margin_relax_step", 0.03);
+    declare_parameter<int>("no_solution_before_relax", 3);
+    declare_parameter<int>("success_before_tighten", 4);
+    declare_parameter<double>("x_min", -10.0);
+    declare_parameter<double>("x_max", 10.0);
+    declare_parameter<double>("y_min", -10.0);
+    declare_parameter<double>("y_max", 10.0);
+    declare_parameter<double>("z_min", -0.5);
+    declare_parameter<double>("z_max", 3.0);
+    declare_parameter<double>("goal_bias", 0.15);
+    declare_parameter<double>("max_planning_time", 1.0);
+    declare_parameter<double>("replan_rate", 2.0);
+    declare_parameter<int>("path_samples", 50);
+    // <= 0 disables approximate-goal-error rejection and accepts all approximate solutions.
+    declare_parameter<double>("max_approx_goal_distance", -1.0);
+    declare_parameter<bool>("enable_dense_path_validation", true);
+    declare_parameter<double>("collision_check_resolution_m", 0.10);
+    declare_parameter<double>("postcheck_relax_step", 0.02);
+    declare_parameter<double>("start_exempt_radius", 0.12);
+    declare_parameter<int>("consecutive_failures_before_hover", 3);
+    declare_parameter<bool>("hover_on_planning_failure", true);
+
+    map_frame_id_ = get_parameter("map_frame_id").as_string();
+    base_frame_id_ = get_parameter("base_frame_id").as_string();
+    drone_radius_ = get_parameter("drone_radius").as_double();
+    nominal_safety_margin_ = get_parameter("safety_margin").as_double();
+    adaptive_safety_margin_ = get_parameter("adaptive_safety_margin").as_bool();
+    min_safety_margin_ = std::max(0.0, get_parameter("min_safety_margin").as_double());
+    safety_margin_relax_step_ = std::max(
+      0.0, get_parameter("safety_margin_relax_step").as_double());
+    no_solution_before_relax_ = std::max(
+      1, static_cast<int>(get_parameter("no_solution_before_relax").as_int()));
+    success_before_tighten_ = std::max(
+      1, static_cast<int>(get_parameter("success_before_tighten").as_int()));
+    if (min_safety_margin_ > nominal_safety_margin_) {
+      RCLCPP_WARN(
+        get_logger(),
+        "RRT*: min_safety_margin (%.2f) > safety_margin (%.2f). Clamping min to safety.",
+        min_safety_margin_, nominal_safety_margin_);
+      min_safety_margin_ = nominal_safety_margin_;
+    }
+    active_safety_margin_ = nominal_safety_margin_;
+    x_min_ = get_parameter("x_min").as_double();
+    x_max_ = get_parameter("x_max").as_double();
+    y_min_ = get_parameter("y_min").as_double();
+    y_max_ = get_parameter("y_max").as_double();
+    z_min_ = get_parameter("z_min").as_double();
+    z_max_ = get_parameter("z_max").as_double();
+    goal_bias_ = get_parameter("goal_bias").as_double();
+    max_planning_time_ = get_parameter("max_planning_time").as_double();
+    replan_rate_ = get_parameter("replan_rate").as_double();
+    path_samples_ = get_parameter("path_samples").as_int();
+    max_approx_goal_distance_ = get_parameter("max_approx_goal_distance").as_double();
+    enable_dense_path_validation_ = get_parameter("enable_dense_path_validation").as_bool();
+    collision_check_resolution_m_ = std::max(
+      0.02, get_parameter("collision_check_resolution_m").as_double());
+    postcheck_relax_step_ = std::max(0.0, get_parameter("postcheck_relax_step").as_double());
+    start_exempt_radius_ = std::max(0.0, get_parameter("start_exempt_radius").as_double());
+    consecutive_failures_before_hover_ = std::max(
+      1, static_cast<int>(get_parameter("consecutive_failures_before_hover").as_int()));
+    hover_on_planning_failure_ = get_parameter("hover_on_planning_failure").as_bool();
+
+    goal_sub_ = create_subscription<geometry_msgs::msg::PoseStamped>(
+      "goal_pose", 10, std::bind(&RRTStarPlannerNode::goalCallback, this, std::placeholders::_1));
+    path_pub_ = create_publisher<nav_msgs::msg::Path>("path", 10);
+    tree_pub_ = create_publisher<visualization_msgs::msg::MarkerArray>("rrt_tree", 10);
+    path_marker_pub_ = create_publisher<visualization_msgs::msg::MarkerArray>("path_markers", 10);
+    planning_active_pub_ = create_publisher<std_msgs::msg::Bool>("planning_active", 10);
+
+    // Service client in a ReentrantCallbackGroup so the executor's second thread
+    // can process service responses while the timer callback thread is blocked in solve().
+    srv_cb_group_ = create_callback_group(rclcpp::CallbackGroupType::Reentrant);
+    esdf_client_ = create_client<esdf_msgs::srv::GetDistance>("get_distance", rclcpp::ServicesQoS(), srv_cb_group_);
+
+    replan_timer_ = create_wall_timer(
+      std::chrono::duration<double>(1.0 / replan_rate_),
+      std::bind(&RRTStarPlannerNode::replanTimerCallback, this));
+
+    RCLCPP_INFO(get_logger(),
+      "RRT* planner: map_frame=%s, drone_radius=%.2f, safety_margin=%.2f "
+      "(adaptive=%s, min=%.2f, step=%.2f), replan=%.1f Hz, dense_check=%s "
+      "(res=%.2fm, relax_step=%.2f, start_exempt=%.2fm, hover_after_failures=%d, "
+      "hover_on_failure=%s)",
+      map_frame_id_.c_str(), drone_radius_, nominal_safety_margin_,
+      adaptive_safety_margin_ ? "true" : "false", min_safety_margin_,
+      safety_margin_relax_step_, replan_rate_,
+      enable_dense_path_validation_ ? "true" : "false",
+      collision_check_resolution_m_, postcheck_relax_step_, start_exempt_radius_,
+      consecutive_failures_before_hover_, hover_on_planning_failure_ ? "true" : "false");
+  }
+
+private:
+  void goalCallback(const geometry_msgs::msg::PoseStamped::SharedPtr msg)
+  {
+    if (msg->header.frame_id != "" && msg->header.frame_id != map_frame_id_) {
+      RCLCPP_WARN(get_logger(), "Goal frame '%s' != map_frame '%s'; store anyway",
+        msg->header.frame_id.c_str(), map_frame_id_.c_str());
+    }
+    std::lock_guard<std::mutex> lock(goal_mutex_);
+    goal_pose_ = *msg;
+    goal_pose_.header.frame_id = map_frame_id_;
+    has_goal_ = true;
+  }
+
+  void replanTimerCallback()
+  {
+    if (!has_goal_) {
+      return;
+    }
+    if (!esdf_client_->service_is_ready()) {
+      RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 2000, "RRT*: ESDF service not ready");
+      return;
+    }
+
+    geometry_msgs::msg::PoseStamped start_pose;
+    if (!getCurrentPose(start_pose)) {
+      RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 2000, "RRT*: no TF map->base_link");
+      publishPlanningActive(false);
+      return;
+    }
+
+    geometry_msgs::msg::PoseStamped goal;
+    {
+      std::lock_guard<std::mutex> lock(goal_mutex_);
+      goal = goal_pose_;
+    }
+
+    runPlanning(start_pose, goal);
+  }
+
+  bool getCurrentPose(geometry_msgs::msg::PoseStamped & out)
+  {
+    try {
+      geometry_msgs::msg::TransformStamped tf = tf_buffer_.lookupTransform(
+        map_frame_id_, base_frame_id_, rclcpp::Time(0), rclcpp::Duration::from_seconds(0.2));
+      out.header = tf.header;
+      out.pose.position.x = tf.transform.translation.x;
+      out.pose.position.y = tf.transform.translation.y;
+      out.pose.position.z = tf.transform.translation.z;
+      out.pose.orientation = tf.transform.rotation;
+      return true;
+    } catch (const tf2::TransformException &) {
+      return false;
+    }
+  }
+
+  static double yawFromQuaternion(double qx, double qy, double qz, double qw)
+  {
+    return std::atan2(
+      2.0 * (qw * qz + qx * qy),
+      1.0 - 2.0 * (qy * qy + qz * qz));
+  }
+
+  bool queryDistance(double x, double y, double z, double & distance, bool & valid)
+  {
+    if (!esdf_client_ || !esdf_client_->service_is_ready()) {
+      return false;
+    }
+
+    auto request = std::make_shared<esdf_msgs::srv::GetDistance::Request>();
+    request->x = x;
+    request->y = y;
+    request->z = z;
+
+    auto result_future = esdf_client_->async_send_request(request);
+    if (result_future.wait_for(std::chrono::milliseconds(100)) != std::future_status::ready) {
+      return false;
+    }
+
+    auto response = result_future.get();
+    valid = response->valid;
+    distance = response->distance;
+    return true;
+  }
+
+  bool isPathCollisionFree(
+    const og::PathGeometric & path,
+    double safety_margin,
+    const geometry_msgs::msg::Point & start_point)
+  {
+    const std::size_t n = path.getStateCount();
+    if (n < 2) {
+      return false;
+    }
+
+    const double step_m = std::max(0.01, collision_check_resolution_m_);
+    const double exempt_sq = start_exempt_radius_ * start_exempt_radius_;
+
+    auto sample_is_valid = [&](double x, double y, double z) -> bool {
+      const double dx0 = x - start_point.x;
+      const double dy0 = y - start_point.y;
+      const double dz0 = z - start_point.z;
+      if (dx0 * dx0 + dy0 * dy0 + dz0 * dz0 <= exempt_sq) {
+        return true;
+      }
+
+      double dist = 0.0;
+      bool valid = false;
+      if (!queryDistance(x, y, z, dist, valid)) {
+        return false;
+      }
+      if (!valid) {
+        return false;
+      }
+      return dist > (drone_radius_ + safety_margin);
+    };
+
+    for (std::size_t i = 0; i + 1 < n; ++i) {
+      const auto * c0 = path.getState(i)->as<ob::CompoundState>();
+      const auto * c1 = path.getState(i + 1)->as<ob::CompoundState>();
+      const auto * p0 = c0->as<ob::RealVectorStateSpace::StateType>(0);
+      const auto * p1 = c1->as<ob::RealVectorStateSpace::StateType>(0);
+
+      const double x0 = p0->values[0];
+      const double y0 = p0->values[1];
+      const double z0 = p0->values[2];
+      const double x1 = p1->values[0];
+      const double y1 = p1->values[1];
+      const double z1 = p1->values[2];
+
+      const double dx = x1 - x0;
+      const double dy = y1 - y0;
+      const double dz = z1 - z0;
+      const double seg_len = std::sqrt(dx * dx + dy * dy + dz * dz);
+      const int steps = std::max(1, static_cast<int>(std::ceil(seg_len / step_m)));
+
+      for (int s = 0; s <= steps; ++s) {
+        if (i > 0 && s == 0) {
+          continue;
+        }
+        const double t = static_cast<double>(s) / static_cast<double>(steps);
+        const double x = x0 + t * dx;
+        const double y = y0 + t * dy;
+        const double z = z0 + t * dz;
+        if (!sample_is_valid(x, y, z)) {
+          return false;
+        }
+      }
+    }
+
+    return true;
+  }
+
+  void runPlanning(
+    const geometry_msgs::msg::PoseStamped & start_pose,
+    const geometry_msgs::msg::PoseStamped & goal_pose)
+  {
+    publishPlanningActive(true);
+
+    auto space = std::make_shared<ob::CompoundStateSpace>();
+
+    auto r3 = std::make_shared<ob::RealVectorStateSpace>(3);
+    ob::RealVectorBounds bounds(3);
+    bounds.setLow(0, x_min_);
+    bounds.setHigh(0, x_max_);
+    bounds.setLow(1, y_min_);
+    bounds.setHigh(1, y_max_);
+    bounds.setLow(2, z_min_);
+    bounds.setHigh(2, z_max_);
+    r3->setBounds(bounds);
+    space->addSubspace(r3, 1.0);
+
+    auto so2 = std::make_shared<ob::SO2StateSpace>();
+    space->addSubspace(so2, 1.0);
+
+    ob::SpaceInformationPtr si(new ob::SpaceInformation(space));
+    auto validity_checker = std::make_shared<EsdfStateValidityChecker>(
+      esdf_client_, si, drone_radius_, active_safety_margin_);
+    validity_checker->setExemptStart(
+      start_pose.pose.position.x,
+      start_pose.pose.position.y,
+      start_pose.pose.position.z);
+    si->setStateValidityChecker(validity_checker);
+    si->setStateValidityCheckingResolution(0.05);
+    si->setup();
+
+    ob::ScopedState<> start(space);
+    start->as<ob::CompoundState>()->as<ob::RealVectorStateSpace::StateType>(0)->values[0] =
+      start_pose.pose.position.x;
+    start->as<ob::CompoundState>()->as<ob::RealVectorStateSpace::StateType>(0)->values[1] =
+      start_pose.pose.position.y;
+    start->as<ob::CompoundState>()->as<ob::RealVectorStateSpace::StateType>(0)->values[2] =
+      start_pose.pose.position.z;
+    start->as<ob::CompoundState>()->as<ob::SO2StateSpace::StateType>(1)->value =
+      yawFromQuaternion(
+      start_pose.pose.orientation.x, start_pose.pose.orientation.y,
+      start_pose.pose.orientation.z, start_pose.pose.orientation.w);
+
+    ob::ScopedState<> goal(space);
+    goal->as<ob::CompoundState>()->as<ob::RealVectorStateSpace::StateType>(0)->values[0] =
+      goal_pose.pose.position.x;
+    goal->as<ob::CompoundState>()->as<ob::RealVectorStateSpace::StateType>(0)->values[1] =
+      goal_pose.pose.position.y;
+    goal->as<ob::CompoundState>()->as<ob::RealVectorStateSpace::StateType>(0)->values[2] =
+      goal_pose.pose.position.z;
+    goal->as<ob::CompoundState>()->as<ob::SO2StateSpace::StateType>(1)->value =
+      yawFromQuaternion(
+      goal_pose.pose.orientation.x, goal_pose.pose.orientation.y,
+      goal_pose.pose.orientation.z, goal_pose.pose.orientation.w);
+
+    ob::ProblemDefinitionPtr pdef(std::make_shared<ob::ProblemDefinition>(si));
+    pdef->addStartState(start);
+    auto goal_ptr = std::make_shared<ob::GoalState>(si);
+    goal_ptr->setState(goal);
+    pdef->setGoal(goal_ptr);
+
+    auto planner = std::make_shared<og::RRTstar>(si);
+    planner->setProblemDefinition(pdef);
+    planner->setup();
+    planner->setGoalBias(goal_bias_);
+
+    ob::PlannerStatus status = planner->solve(ob::timedPlannerTerminationCondition(max_planning_time_));
+
+    publishPlanningActive(false);
+
+    if (status != ob::PlannerStatus::EXACT_SOLUTION &&
+      status != ob::PlannerStatus::APPROXIMATE_SOLUTION)
+    {
+      handlePlanningFailure("RRT*: no solution (timeout or invalid)", hover_on_planning_failure_);
+      return;
+    }
+
+    og::PathGeometric * path = pdef->getSolutionPath()->as<og::PathGeometric>();
+    if (!path || path->getStateCount() < 2) {
+      handlePlanningFailure("RRT*: planner returned invalid/short path", hover_on_planning_failure_);
+      return;
+    }
+
+    if (status == ob::PlannerStatus::APPROXIMATE_SOLUTION) {
+      const double goal_error = pathGoalError(*path, goal_pose);
+      if (max_approx_goal_distance_ > 0.0 && goal_error > max_approx_goal_distance_) {
+        RCLCPP_WARN(
+          get_logger(),
+          "RRT*: rejecting approximate solution (goal error %.2f m > %.2f m)",
+          goal_error, max_approx_goal_distance_);
+        handlePlanningFailure(
+          "RRT*: approximate solution rejected by goal error", hover_on_planning_failure_);
+        return;
+      }
+      if (max_approx_goal_distance_ > 0.0) {
+        RCLCPP_WARN(
+          get_logger(), "RRT*: using approximate solution (goal error %.2f m)", goal_error);
+      } else {
+        RCLCPP_WARN(
+          get_logger(),
+          "RRT*: using approximate solution (goal error %.2f m, rejection disabled)", goal_error);
+      }
+    }
+
+    if (enable_dense_path_validation_) {
+      geometry_msgs::msg::Point start_point = start_pose.pose.position;
+      bool safe = isPathCollisionFree(*path, active_safety_margin_, start_point);
+      double accepted_margin = active_safety_margin_;
+
+      if (!safe && adaptive_safety_margin_ && postcheck_relax_step_ > 0.0) {
+        double trial_margin = active_safety_margin_;
+        while (trial_margin > min_safety_margin_ + 1e-6) {
+          trial_margin = std::max(min_safety_margin_, trial_margin - postcheck_relax_step_);
+          if (isPathCollisionFree(*path, trial_margin, start_point)) {
+            safe = true;
+            accepted_margin = trial_margin;
+            break;
+          }
+        }
+      }
+
+      if (!safe) {
+        handlePlanningFailure("RRT*: dense collision check rejected path", true);
+        return;
+      }
+
+      if (accepted_margin + 1e-6 < active_safety_margin_) {
+        RCLCPP_WARN(
+          get_logger(),
+          "RRT*: accepting path with relaxed safety_margin %.2f -> %.2f",
+          active_safety_margin_, accepted_margin);
+        active_safety_margin_ = accepted_margin;
+        success_streak_ = 0;
+        no_solution_streak_ = 0;
+      }
+    }
+
+    handlePlanningSuccess();
+
+    nav_msgs::msg::Path path_msg;
+    path_msg.header.frame_id = map_frame_id_;
+    path_msg.header.stamp = now();
+
+    std::vector<ob::State *> states = path->getStates();
+    for (size_t i = 0; i < states.size(); ++i) {
+      const auto * comp = states[i]->as<ob::CompoundState>();
+      const auto * pos = comp->as<ob::RealVectorStateSpace::StateType>(0);
+      geometry_msgs::msg::PoseStamped pose;
+      pose.header = path_msg.header;
+      pose.pose.position.x = pos->values[0];
+      pose.pose.position.y = pos->values[1];
+      pose.pose.position.z = pos->values[2];
+      double yaw = comp->as<ob::SO2StateSpace::StateType>(1)->value;
+      pose.pose.orientation.x = 0.0;
+      pose.pose.orientation.y = 0.0;
+      pose.pose.orientation.z = std::sin(yaw / 2.0);
+      pose.pose.orientation.w = std::cos(yaw / 2.0);
+      path_msg.poses.push_back(pose);
+    }
+
+    path_pub_->publish(path_msg);
+
+    // Optional: publish tree and path as markers (simplified: just path line)
+    publishPathMarkers(path_msg);
+  }
+
+  void publishPlanningActive(bool active)
+  {
+    std_msgs::msg::Bool msg;
+    msg.data = active;
+    planning_active_pub_->publish(msg);
+  }
+
+  void publishEmptyPath()
+  {
+    nav_msgs::msg::Path path_msg;
+    path_msg.header.frame_id = map_frame_id_;
+    path_msg.header.stamp = now();
+    path_pub_->publish(path_msg);
+  }
+
+  void handlePlanningFailure(const std::string & reason, bool force_hover = false)
+  {
+    RCLCPP_WARN(get_logger(), "%s", reason.c_str());
+
+    success_streak_ = 0;
+    ++no_solution_streak_;
+
+    if (adaptive_safety_margin_ && safety_margin_relax_step_ > 0.0) {
+      if (no_solution_streak_ >= no_solution_before_relax_) {
+        const double new_margin = std::max(
+          min_safety_margin_, active_safety_margin_ - safety_margin_relax_step_);
+        if (new_margin + 1e-6 < active_safety_margin_) {
+          RCLCPP_WARN(
+            get_logger(),
+            "RRT*: relaxing safety_margin %.2f -> %.2f after %d consecutive failures",
+            active_safety_margin_, new_margin, no_solution_before_relax_);
+          active_safety_margin_ = new_margin;
+        }
+        no_solution_streak_ = 0;
+      }
+    }
+
+    ++path_failure_streak_;
+    if (force_hover) {
+      RCLCPP_WARN(
+        get_logger(),
+        "RRT*: publishing empty path immediately due to collision-risk planning failure");
+      publishEmptyPath();
+      return;
+    }
+
+    if (path_failure_streak_ >= consecutive_failures_before_hover_) {
+      publishEmptyPath();
+    } else {
+      RCLCPP_WARN(
+        get_logger(),
+        "RRT*: keeping previous path (failure streak %d/%d)",
+        path_failure_streak_, consecutive_failures_before_hover_);
+    }
+  }
+
+  void handlePlanningSuccess()
+  {
+    path_failure_streak_ = 0;
+    no_solution_streak_ = 0;
+
+    if (!adaptive_safety_margin_ || safety_margin_relax_step_ <= 0.0) {
+      success_streak_ = 0;
+      return;
+    }
+
+    if (active_safety_margin_ + 1e-6 >= nominal_safety_margin_) {
+      active_safety_margin_ = nominal_safety_margin_;
+      success_streak_ = 0;
+      return;
+    }
+
+    ++success_streak_;
+    if (success_streak_ >= success_before_tighten_) {
+      const double new_margin = std::min(
+        nominal_safety_margin_, active_safety_margin_ + safety_margin_relax_step_);
+      if (new_margin > active_safety_margin_ + 1e-6) {
+        RCLCPP_INFO(
+          get_logger(),
+          "RRT*: restoring safety_margin %.2f -> %.2f after %d successful replans",
+          active_safety_margin_, new_margin, success_before_tighten_);
+        active_safety_margin_ = new_margin;
+      }
+      success_streak_ = 0;
+    }
+  }
+
+  void publishPathMarkers(const nav_msgs::msg::Path & path_msg)
+  {
+    visualization_msgs::msg::MarkerArray ma;
+    visualization_msgs::msg::Marker line;
+    line.header = path_msg.header;
+    line.ns = "path";
+    line.id = 0;
+    line.type = visualization_msgs::msg::Marker::LINE_STRIP;
+    line.action = visualization_msgs::msg::Marker::ADD;
+    line.scale.x = 0.05;
+    line.color.a = 1.0;
+    line.color.r = 0.0;
+    line.color.g = 1.0;
+    line.color.b = 0.0;
+    for (const auto & p : path_msg.poses) {
+      geometry_msgs::msg::Point pt;
+      pt.x = p.pose.position.x;
+      pt.y = p.pose.position.y;
+      pt.z = p.pose.position.z;
+      line.points.push_back(pt);
+    }
+    if (!line.points.empty()) {
+      ma.markers.push_back(line);
+    }
+    path_marker_pub_->publish(ma);
+  }
+
+  double pathGoalError(
+    const og::PathGeometric & path,
+    const geometry_msgs::msg::PoseStamped & goal_pose) const
+  {
+    if (path.getStateCount() == 0) {
+      return std::numeric_limits<double>::infinity();
+    }
+    const auto * comp = path.getState(path.getStateCount() - 1)->as<ob::CompoundState>();
+    const auto * pos = comp->as<ob::RealVectorStateSpace::StateType>(0);
+    const double dx = pos->values[0] - goal_pose.pose.position.x;
+    const double dy = pos->values[1] - goal_pose.pose.position.y;
+    const double dz = pos->values[2] - goal_pose.pose.position.z;
+    return std::sqrt(dx * dx + dy * dy + dz * dz);
+  }
+
+  std::string map_frame_id_;
+  std::string base_frame_id_;
+  double drone_radius_;
+  double nominal_safety_margin_;
+  double active_safety_margin_;
+  bool adaptive_safety_margin_;
+  double min_safety_margin_;
+  double safety_margin_relax_step_;
+  int no_solution_before_relax_;
+  int success_before_tighten_;
+  int no_solution_streak_{0};
+  int success_streak_{0};
+  double x_min_, x_max_, y_min_, y_max_, z_min_, z_max_;
+  double goal_bias_;
+  double max_planning_time_;
+  double replan_rate_;
+  int path_samples_;
+  double max_approx_goal_distance_;
+  bool enable_dense_path_validation_;
+  double collision_check_resolution_m_;
+  double postcheck_relax_step_;
+  double start_exempt_radius_;
+  int consecutive_failures_before_hover_;
+  bool hover_on_planning_failure_;
+  int path_failure_streak_{0};
+
+  tf2_ros::Buffer tf_buffer_;
+  tf2_ros::TransformListener tf_listener_;
+
+  rclcpp::Subscription<geometry_msgs::msg::PoseStamped>::SharedPtr goal_sub_;
+  rclcpp::Publisher<nav_msgs::msg::Path>::SharedPtr path_pub_;
+  rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr tree_pub_;
+  rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr path_marker_pub_;
+  rclcpp::Publisher<std_msgs::msg::Bool>::SharedPtr planning_active_pub_;
+  rclcpp::CallbackGroup::SharedPtr srv_cb_group_;
+  rclcpp::Client<esdf_msgs::srv::GetDistance>::SharedPtr esdf_client_;
+  rclcpp::TimerBase::SharedPtr replan_timer_;
+
+  std::mutex goal_mutex_;
+  geometry_msgs::msg::PoseStamped goal_pose_;
+  bool has_goal_{false};
+};
+
+}  // namespace rrt_star_planner
+
+int main(int argc, char * argv[])
+{
+  rclcpp::init(argc, argv);
+  auto node = std::make_shared<rrt_star_planner::RRTStarPlannerNode>();
+  // Multi-threaded executor so service responses can be received while timer callback runs
+  rclcpp::executors::MultiThreadedExecutor executor(rclcpp::ExecutorOptions(), 2);
+  executor.add_node(node);
+  executor.spin();
+  rclcpp::shutdown();
+  return 0;
+}

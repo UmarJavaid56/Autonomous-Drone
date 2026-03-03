@@ -17,7 +17,7 @@ public:
     {
         pose_topic_ = this->declare_parameter<std::string>(
             "pose_topic",
-            "/orbslam3/pose"
+            "/vision_pose/pose"
         );
         
         udp_ip_ = this->declare_parameter<std::string>(
@@ -73,7 +73,7 @@ private:
         const auto &q = msg->pose.orientation;
 
         RCLCPP_INFO(this->get_logger(),
-                    "ORB-SLAM3 pose: "
+                    "Vision pose: "
                     "pos [x=%.3f y=%.3f z=%.3f], "
                     "ori [x=%.3f y=%.3f z=%.3f w=%.3f]",
                     p.x, p.y, p.z,

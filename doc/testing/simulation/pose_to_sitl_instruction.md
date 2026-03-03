@@ -38,7 +38,7 @@ python3 publish_ned_pose.py --x 1.0 --y 2.0 --z -2.0
 ### Additional Options
 
 ```bash
-# Change publishing topic (default: /orbslam3/pose)
+# Change publishing topic (default: /vision_pose/pose)
 python3 publish_ned_pose.py --trajectory circle --topic /custom/pose
 
 # Change publishing rate (default: 30 Hz)
@@ -74,7 +74,7 @@ python3 publish_ned_pose.py --trajectory circle --rate 10.0
 ## Notes
 
 - The script publishes `geometry_msgs/PoseStamped` messages
-- Default topic is `/orbslam3/pose` (matches the bridge node's subscription)
+- Default topic is `/vision_pose/pose` (matches the bridge node's subscription)
 - Timestamps are automatically set to current ROS time
 - Frame ID is set to "world"
 
