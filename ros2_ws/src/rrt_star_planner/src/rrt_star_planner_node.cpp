@@ -31,6 +31,7 @@
 #include <ompl/base/StateSpace.h>  // CompoundStateSpace
 #include <ompl/base/StateValidityChecker.h>
 #include <ompl/base/State.h>
+#include <ompl/base/PlannerData.h>
 #include <ompl/base/goals/GoalState.h>
 #include <ompl/base/PlannerTerminationCondition.h>
 #include <ompl/geometric/planners/rrt/RRTstar.h>
@@ -436,6 +437,9 @@ private:
     ob::PlannerStatus status = planner->solve(ob::timedPlannerTerminationCondition(max_planning_time_));
 
     publishPlanningActive(false);
+    ob::PlannerData planner_data(si);
+    planner->getPlannerData(planner_data);
+    publishTreeMarkers(planner_data, now());
 
     if (status != ob::PlannerStatus::EXACT_SOLUTION &&
       status != ob::PlannerStatus::APPROXIMATE_SOLUTION)
@@ -546,6 +550,7 @@ private:
     path_msg.header.frame_id = map_frame_id_;
     path_msg.header.stamp = now();
     path_pub_->publish(path_msg);
+    publishPathMarkers(path_msg);
   }
 
   void handlePlanningFailure(const std::string & reason, bool force_hover = false)
@@ -623,10 +628,15 @@ private:
   void publishPathMarkers(const nav_msgs::msg::Path & path_msg)
   {
     visualization_msgs::msg::MarkerArray ma;
+    visualization_msgs::msg::Marker clear;
+    clear.header = path_msg.header;
+    clear.action = visualization_msgs::msg::Marker::DELETEALL;
+    ma.markers.push_back(clear);
+
     visualization_msgs::msg::Marker line;
     line.header = path_msg.header;
     line.ns = "path";
-    line.id = 0;
+    line.id = 1;
     line.type = visualization_msgs::msg::Marker::LINE_STRIP;
     line.action = visualization_msgs::msg::Marker::ADD;
     line.scale.x = 0.05;
@@ -645,6 +655,92 @@ private:
       ma.markers.push_back(line);
     }
     path_marker_pub_->publish(ma);
+  }
+
+  void publishTreeMarkers(const ob::PlannerData & planner_data, const rclcpp::Time & stamp)
+  {
+    visualization_msgs::msg::MarkerArray ma;
+    visualization_msgs::msg::Marker clear;
+    clear.header.frame_id = map_frame_id_;
+    clear.header.stamp = stamp;
+    clear.action = visualization_msgs::msg::Marker::DELETEALL;
+    ma.markers.push_back(clear);
+
+    const std::size_t num_vertices = planner_data.numVertices();
+    if (num_vertices == 0) {
+      tree_pub_->publish(ma);
+      return;
+    }
+
+    visualization_msgs::msg::Marker edges;
+    edges.header.frame_id = map_frame_id_;
+    edges.header.stamp = stamp;
+    edges.ns = "rrt_tree_edges";
+    edges.id = 1;
+    edges.type = visualization_msgs::msg::Marker::LINE_LIST;
+    edges.action = visualization_msgs::msg::Marker::ADD;
+    edges.scale.x = 0.01;
+    edges.color.a = 0.65;
+    edges.color.r = 0.2;
+    edges.color.g = 0.8;
+    edges.color.b = 1.0;
+
+    visualization_msgs::msg::Marker nodes;
+    nodes.header.frame_id = map_frame_id_;
+    nodes.header.stamp = stamp;
+    nodes.ns = "rrt_tree_nodes";
+    nodes.id = 2;
+    nodes.type = visualization_msgs::msg::Marker::SPHERE_LIST;
+    nodes.action = visualization_msgs::msg::Marker::ADD;
+    nodes.scale.x = 0.03;
+    nodes.scale.y = 0.03;
+    nodes.scale.z = 0.03;
+    nodes.color.a = 0.9;
+    nodes.color.r = 1.0;
+    nodes.color.g = 0.85;
+    nodes.color.b = 0.1;
+
+    std::vector<geometry_msgs::msg::Point> vertex_points(num_vertices);
+    std::vector<bool> valid_vertex(num_vertices, false);
+    for (std::size_t i = 0; i < num_vertices; ++i) {
+      const ob::State * state = planner_data.getVertex(i).getState();
+      if (!state) {
+        continue;
+      }
+      const auto * comp = state->as<ob::CompoundState>();
+      const auto * pos = comp->as<ob::RealVectorStateSpace::StateType>(0);
+      geometry_msgs::msg::Point p;
+      p.x = pos->values[0];
+      p.y = pos->values[1];
+      p.z = pos->values[2];
+      vertex_points[i] = p;
+      valid_vertex[i] = true;
+      nodes.points.push_back(p);
+    }
+
+    std::vector<unsigned int> edge_list;
+    for (std::size_t i = 0; i < num_vertices; ++i) {
+      if (!valid_vertex[i]) {
+        continue;
+      }
+      edge_list.clear();
+      planner_data.getEdges(i, edge_list);
+      for (const auto j : edge_list) {
+        if (j >= num_vertices || !valid_vertex[j]) {
+          continue;
+        }
+        edges.points.push_back(vertex_points[i]);
+        edges.points.push_back(vertex_points[j]);
+      }
+    }
+
+    if (!edges.points.empty()) {
+      ma.markers.push_back(edges);
+    }
+    if (!nodes.points.empty()) {
+      ma.markers.push_back(nodes);
+    }
+    tree_pub_->publish(ma);
   }
 
   double pathGoalError(

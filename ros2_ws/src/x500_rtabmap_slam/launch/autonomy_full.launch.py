@@ -16,6 +16,7 @@ Usage:
     ros2 launch x500_rtabmap_slam autonomy_full.launch.py max_approx_goal_distance:=0.8
 
 Set goal in RViz: use "Publish Point" (click a 3D point) or "2D Goal Pose" (click-drag); or publish PoseStamped to /goal_pose.
+Map-driven mission mode: publish a final PoseStamped goal to /maze_final_goal and the node will generate adaptive subgoals.
 """
 import os
 from ament_index_python.packages import get_package_share_directory
@@ -36,10 +37,18 @@ def generate_launch_description():
     use_sim_time = LaunchConfiguration("use_sim_time", default="true")
     rviz = LaunchConfiguration("rviz", default="true")
     enable_autonomy = LaunchConfiguration("enable_autonomy", default="true")
+    enable_waypoint_mission = LaunchConfiguration("enable_waypoint_mission", default="false")
+    mission_start_delay_sec = LaunchConfiguration("mission_start_delay_sec", default="0.0")
+    mission_final_goal_topic = LaunchConfiguration("mission_final_goal_topic", default="/maze_final_goal")
+    mission_final_goal_tolerance = LaunchConfiguration("mission_final_goal_tolerance", default="0.60")
+    mission_subgoal_lookahead_m = LaunchConfiguration("mission_subgoal_lookahead_m", default="1.8")
+    mission_inflation_radius_m = LaunchConfiguration("mission_inflation_radius_m", default="0.12")
+    mission_unknown_is_blocked = LaunchConfiguration("mission_unknown_is_blocked", default="true")
     auto_takeoff = LaunchConfiguration("auto_takeoff", default="false")
+    drone_radius = LaunchConfiguration("drone_radius", default="0.25")
     unknown_is_occupied = LaunchConfiguration("unknown_is_occupied", default="false")
     max_approx_goal_distance = LaunchConfiguration("max_approx_goal_distance", default="0.8")
-    safety_margin = LaunchConfiguration("safety_margin", default="0.15")
+    safety_margin = LaunchConfiguration("safety_margin", default="0.32")
     adaptive_safety_margin = LaunchConfiguration("adaptive_safety_margin", default="true")
     min_safety_margin = LaunchConfiguration("min_safety_margin", default="0.08")
     safety_margin_relax_step = LaunchConfiguration("safety_margin_relax_step", default="0.02")
@@ -180,7 +189,7 @@ def generate_launch_description():
             {"use_sim_time": use_sim_time},
             {"map_frame_id": "map"},
             {"base_frame_id": "base_link"},
-            {"drone_radius": 0.25},
+            {"drone_radius": ParameterValue(drone_radius, value_type=float)},
             {"safety_margin": safety_margin},
             {"adaptive_safety_margin": adaptive_safety_margin},
             {"min_safety_margin": min_safety_margin},
@@ -273,6 +282,24 @@ def generate_launch_description():
         condition=IfCondition(enable_autonomy),
     )
 
+    # 6b) Optional map-driven maze mission: final goal -> adaptive subgoals on /goal_pose
+    waypoint_mission_node = Node(
+        package="x500_rtabmap_slam",
+        executable="waypoint_mission_node",
+        name="waypoint_mission",
+        output="screen",
+        parameters=[
+            {"use_sim_time": use_sim_time},
+            {"start_delay_sec": ParameterValue(mission_start_delay_sec, value_type=float)},
+            {"final_goal_topic": mission_final_goal_topic},
+            {"final_goal_reach_tolerance": ParameterValue(mission_final_goal_tolerance, value_type=float)},
+            {"subgoal_lookahead_m": ParameterValue(mission_subgoal_lookahead_m, value_type=float)},
+            {"inflation_radius_m": ParameterValue(mission_inflation_radius_m, value_type=float)},
+            {"unknown_is_blocked": ParameterValue(mission_unknown_is_blocked, value_type=bool)},
+        ],
+        condition=IfCondition(enable_waypoint_mission),
+    )
+
     # 6) RViz
     rviz_config = os.path.join(x500_rtabmap_slam_dir, "config", "rtabmap_slam.rviz")
     rviz_node = Node(
@@ -314,6 +341,41 @@ def generate_launch_description():
             "enable_autonomy",
             default_value="true",
             description="If false, run mapping/simulation stack only (no planner/path executor/goal bridge).",
+        ),
+        DeclareLaunchArgument(
+            "enable_waypoint_mission",
+            default_value="false",
+            description="If true, run map-driven maze mission node (single final goal -> adaptive subgoals).",
+        ),
+        DeclareLaunchArgument(
+            "mission_start_delay_sec",
+            default_value="0.0",
+            description="Delay (wall-time seconds) before map-driven mission starts.",
+        ),
+        DeclareLaunchArgument(
+            "mission_final_goal_topic",
+            default_value="/maze_final_goal",
+            description="PoseStamped topic used to provide the final maze goal (map frame).",
+        ),
+        DeclareLaunchArgument(
+            "mission_final_goal_tolerance",
+            default_value="0.60",
+            description="XY distance threshold (meters) to consider the final maze goal reached.",
+        ),
+        DeclareLaunchArgument(
+            "mission_subgoal_lookahead_m",
+            default_value="1.8",
+            description="A* path lookahead distance (meters) used to choose intermediate subgoals.",
+        ),
+        DeclareLaunchArgument(
+            "mission_inflation_radius_m",
+            default_value="0.12",
+            description="Obstacle inflation radius for map-driven subgoal generation.",
+        ),
+        DeclareLaunchArgument(
+            "mission_unknown_is_blocked",
+            default_value="true",
+            description="If true, unknown occupancy cells are blocked in mission-level path search.",
         ),
         DeclareLaunchArgument(
             "planner_z_min",
@@ -421,6 +483,11 @@ def generate_launch_description():
             description="Nominal ESDF clearance added to drone_radius (meters).",
         ),
         DeclareLaunchArgument(
+            "drone_radius",
+            default_value="0.25",
+            description="Planner collision radius used for ESDF clearance checks (meters).",
+        ),
+        DeclareLaunchArgument(
             "adaptive_safety_margin",
             default_value="true",
             description="If true, reduce safety_margin after repeated planning failures and restore on success.",
@@ -499,6 +566,7 @@ def generate_launch_description():
         rrt_node,
         path_exec_node,
         goal_from_rviz_node,
+        waypoint_mission_node,
         rviz_node,
         takeoff_delayed,
     ])
