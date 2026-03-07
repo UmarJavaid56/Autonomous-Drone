@@ -140,8 +140,15 @@ public:
     declare_parameter<double>("max_approx_goal_distance", -1.0);
     declare_parameter<bool>("enable_dense_path_validation", true);
     declare_parameter<double>("collision_check_resolution_m", 0.10);
+    declare_parameter<double>("dense_check_safety_scale", 0.70);
     declare_parameter<double>("postcheck_relax_step", 0.02);
-    declare_parameter<double>("start_exempt_radius", 0.12);
+    declare_parameter<double>("start_exempt_radius", 0.35);
+    declare_parameter<bool>("allow_progressive_approximate", true);
+    declare_parameter<double>("min_progress_toward_goal_m", 0.35);
+    declare_parameter<bool>("allow_safe_prefix_fallback", true);
+    declare_parameter<double>("min_progress_path_length_m", 0.25);
+    declare_parameter<bool>("allow_regressive_safe_prefix", true);
+    declare_parameter<double>("max_safe_prefix_regression_m", 1.50);
     declare_parameter<int>("consecutive_failures_before_hover", 3);
     declare_parameter<bool>("hover_on_planning_failure", true);
 
@@ -179,8 +186,19 @@ public:
     enable_dense_path_validation_ = get_parameter("enable_dense_path_validation").as_bool();
     collision_check_resolution_m_ = std::max(
       0.02, get_parameter("collision_check_resolution_m").as_double());
+    dense_check_safety_scale_ = std::clamp(
+      get_parameter("dense_check_safety_scale").as_double(), 0.0, 1.0);
     postcheck_relax_step_ = std::max(0.0, get_parameter("postcheck_relax_step").as_double());
     start_exempt_radius_ = std::max(0.0, get_parameter("start_exempt_radius").as_double());
+    allow_progressive_approximate_ = get_parameter("allow_progressive_approximate").as_bool();
+    min_progress_toward_goal_m_ = std::max(
+      0.0, get_parameter("min_progress_toward_goal_m").as_double());
+    allow_safe_prefix_fallback_ = get_parameter("allow_safe_prefix_fallback").as_bool();
+    min_progress_path_length_m_ = std::max(
+      0.0, get_parameter("min_progress_path_length_m").as_double());
+    allow_regressive_safe_prefix_ = get_parameter("allow_regressive_safe_prefix").as_bool();
+    max_safe_prefix_regression_m_ = std::max(
+      0.0, get_parameter("max_safe_prefix_regression_m").as_double());
     consecutive_failures_before_hover_ = std::max(
       1, static_cast<int>(get_parameter("consecutive_failures_before_hover").as_int()));
     hover_on_planning_failure_ = get_parameter("hover_on_planning_failure").as_bool();
@@ -204,14 +222,22 @@ public:
     RCLCPP_INFO(get_logger(),
       "RRT* planner: map_frame=%s, drone_radius=%.2f, safety_margin=%.2f "
       "(adaptive=%s, min=%.2f, step=%.2f), replan=%.1f Hz, dense_check=%s "
-      "(res=%.2fm, relax_step=%.2f, start_exempt=%.2fm, hover_after_failures=%d, "
-      "hover_on_failure=%s)",
+      "(res=%.2fm, scale=%.2f, relax_step=%.2f, start_exempt=%.2fm, hover_after_failures=%d, "
+      "hover_on_failure=%s, progress_approx=%s, safe_prefix=%s, min_progress=%.2fm, "
+      "min_prefix_len=%.2fm, regressive_prefix=%s, max_regress=%.2fm)",
       map_frame_id_.c_str(), drone_radius_, nominal_safety_margin_,
       adaptive_safety_margin_ ? "true" : "false", min_safety_margin_,
       safety_margin_relax_step_, replan_rate_,
       enable_dense_path_validation_ ? "true" : "false",
-      collision_check_resolution_m_, postcheck_relax_step_, start_exempt_radius_,
-      consecutive_failures_before_hover_, hover_on_planning_failure_ ? "true" : "false");
+      collision_check_resolution_m_, dense_check_safety_scale_, postcheck_relax_step_,
+      start_exempt_radius_,
+      consecutive_failures_before_hover_, hover_on_planning_failure_ ? "true" : "false",
+      allow_progressive_approximate_ ? "true" : "false",
+      allow_safe_prefix_fallback_ ? "true" : "false",
+      min_progress_toward_goal_m_,
+      min_progress_path_length_m_,
+      allow_regressive_safe_prefix_ ? "true" : "false",
+      max_safe_prefix_regression_m_);
   }
 
 private:
@@ -303,13 +329,24 @@ private:
     double safety_margin,
     const geometry_msgs::msg::Point & start_point)
   {
+    return safePrefixStateCount(path, safety_margin, start_point) == path.getStateCount();
+  }
+
+  std::size_t safePrefixStateCount(
+    const og::PathGeometric & path,
+    double safety_margin,
+    const geometry_msgs::msg::Point & start_point)
+  {
     const std::size_t n = path.getStateCount();
     if (n < 2) {
-      return false;
+      return 0;
     }
 
     const double step_m = std::max(0.01, collision_check_resolution_m_);
-    const double exempt_sq = start_exempt_radius_ * start_exempt_radius_;
+    const double dynamic_start_exempt_radius = std::max(
+      start_exempt_radius_,
+      drone_radius_ + std::min(0.15, safety_margin) + 0.05);
+    const double exempt_sq = dynamic_start_exempt_radius * dynamic_start_exempt_radius;
 
     auto sample_is_valid = [&](double x, double y, double z) -> bool {
       const double dx0 = x - start_point.x;
@@ -327,7 +364,8 @@ private:
       if (!valid) {
         return false;
       }
-      return dist > (drone_radius_ + safety_margin);
+      const double check_margin = safety_margin * dense_check_safety_scale_;
+      return dist > (drone_radius_ + check_margin);
     };
 
     for (std::size_t i = 0; i + 1 < n; ++i) {
@@ -358,12 +396,44 @@ private:
         const double y = y0 + t * dy;
         const double z = z0 + t * dz;
         if (!sample_is_valid(x, y, z)) {
-          return false;
+          return i + 1;
         }
       }
     }
 
-    return true;
+    return n;
+  }
+
+  static double pointDistance(
+    const geometry_msgs::msg::Point & a,
+    const geometry_msgs::msg::Point & b)
+  {
+    const double dx = a.x - b.x;
+    const double dy = a.y - b.y;
+    const double dz = a.z - b.z;
+    return std::sqrt(dx * dx + dy * dy + dz * dz);
+  }
+
+  double pathPrefixLength(
+    const og::PathGeometric & path,
+    std::size_t state_count) const
+  {
+    if (state_count < 2) {
+      return 0.0;
+    }
+    const std::size_t capped = std::min(state_count, path.getStateCount());
+    double len = 0.0;
+    for (std::size_t i = 0; i + 1 < capped; ++i) {
+      const auto * c0 = path.getState(i)->as<ob::CompoundState>();
+      const auto * c1 = path.getState(i + 1)->as<ob::CompoundState>();
+      const auto * p0 = c0->as<ob::RealVectorStateSpace::StateType>(0);
+      const auto * p1 = c1->as<ob::RealVectorStateSpace::StateType>(0);
+      const double dx = p1->values[0] - p0->values[0];
+      const double dy = p1->values[1] - p0->values[1];
+      const double dz = p1->values[2] - p0->values[2];
+      len += std::sqrt(dx * dx + dy * dy + dz * dz);
+    }
+    return len;
   }
 
   void runPlanning(
@@ -454,16 +524,29 @@ private:
       return;
     }
 
+    const geometry_msgs::msg::Point goal_point = goal_pose.pose.position;
+    const geometry_msgs::msg::Point start_point = start_pose.pose.position;
+    const double start_goal_error = pointDistance(start_point, goal_point);
+
     if (status == ob::PlannerStatus::APPROXIMATE_SOLUTION) {
       const double goal_error = pathGoalError(*path, goal_pose);
       if (max_approx_goal_distance_ > 0.0 && goal_error > max_approx_goal_distance_) {
-        RCLCPP_WARN(
-          get_logger(),
-          "RRT*: rejecting approximate solution (goal error %.2f m > %.2f m)",
-          goal_error, max_approx_goal_distance_);
-        handlePlanningFailure(
-          "RRT*: approximate solution rejected by goal error", hover_on_planning_failure_);
-        return;
+        const double progress = start_goal_error - goal_error;
+        if (allow_progressive_approximate_ && progress >= min_progress_toward_goal_m_) {
+          RCLCPP_WARN(
+            get_logger(),
+            "RRT*: accepting progressive approximate solution (goal error %.2f m > %.2f m, "
+            "progress %.2f m >= %.2f m)",
+            goal_error, max_approx_goal_distance_, progress, min_progress_toward_goal_m_);
+        } else {
+          RCLCPP_WARN(
+            get_logger(),
+            "RRT*: rejecting approximate solution (goal error %.2f m > %.2f m, progress %.2f m)",
+            goal_error, max_approx_goal_distance_, progress);
+          handlePlanningFailure(
+            "RRT*: approximate solution rejected by goal error", hover_on_planning_failure_);
+          return;
+        }
       }
       if (max_approx_goal_distance_ > 0.0) {
         RCLCPP_WARN(
@@ -475,16 +558,18 @@ private:
       }
     }
 
+    std::size_t publish_state_count = path->getStateCount();
     if (enable_dense_path_validation_) {
-      geometry_msgs::msg::Point start_point = start_pose.pose.position;
-      bool safe = isPathCollisionFree(*path, active_safety_margin_, start_point);
+      std::size_t safe_prefix_count = safePrefixStateCount(*path, active_safety_margin_, start_point);
+      bool safe = (safe_prefix_count == path->getStateCount());
       double accepted_margin = active_safety_margin_;
 
       if (!safe && adaptive_safety_margin_ && postcheck_relax_step_ > 0.0) {
         double trial_margin = active_safety_margin_;
         while (trial_margin > min_safety_margin_ + 1e-6) {
           trial_margin = std::max(min_safety_margin_, trial_margin - postcheck_relax_step_);
-          if (isPathCollisionFree(*path, trial_margin, start_point)) {
+          safe_prefix_count = safePrefixStateCount(*path, trial_margin, start_point);
+          if (safe_prefix_count == path->getStateCount()) {
             safe = true;
             accepted_margin = trial_margin;
             break;
@@ -493,8 +578,63 @@ private:
       }
 
       if (!safe) {
-        handlePlanningFailure("RRT*: dense collision check rejected path", true);
-        return;
+        bool used_safe_prefix = false;
+        if (allow_safe_prefix_fallback_ && safe_prefix_count >= 2) {
+          const auto * comp = path->getState(safe_prefix_count - 1)->as<ob::CompoundState>();
+          const auto * pos = comp->as<ob::RealVectorStateSpace::StateType>(0);
+          geometry_msgs::msg::Point prefix_end;
+          prefix_end.x = pos->values[0];
+          prefix_end.y = pos->values[1];
+          prefix_end.z = pos->values[2];
+
+          const double prefix_goal_error = pointDistance(prefix_end, goal_point);
+          const double progress = start_goal_error - prefix_goal_error;
+          const double prefix_length = pathPrefixLength(*path, safe_prefix_count);
+          const bool forward_progress_ok = (progress >= min_progress_toward_goal_m_);
+          const bool bounded_regression_ok = (
+            allow_regressive_safe_prefix_ &&
+            progress >= -max_safe_prefix_regression_m_);
+          if (
+            prefix_length >= min_progress_path_length_m_ &&
+            (forward_progress_ok || bounded_regression_ok))
+          {
+            used_safe_prefix = true;
+            publish_state_count = safe_prefix_count;
+            if (forward_progress_ok) {
+              RCLCPP_WARN(
+                get_logger(),
+                "RRT*: dense check rejected full path, using safe prefix (%zu/%zu states, "
+                "len %.2f m, progress %.2f m)",
+                safe_prefix_count, path->getStateCount(), prefix_length, progress);
+            } else {
+              RCLCPP_WARN(
+                get_logger(),
+                "RRT*: dense check rejected full path, using regressive safe prefix "
+                "(%zu/%zu states, len %.2f m, progress %.2f m >= -%.2f m)",
+                safe_prefix_count, path->getStateCount(), prefix_length, progress,
+                max_safe_prefix_regression_m_);
+            }
+          } else {
+            RCLCPP_WARN(
+              get_logger(),
+              "RRT*: safe-prefix candidate rejected (%zu/%zu states, len %.2f m < %.2f m "
+              "or progress %.2f m outside [%.2f, +inf))",
+              safe_prefix_count, path->getStateCount(),
+              prefix_length, min_progress_path_length_m_, progress,
+              allow_regressive_safe_prefix_ ? -max_safe_prefix_regression_m_ : min_progress_toward_goal_m_);
+          }
+        }
+        if (!used_safe_prefix) {
+          if (safe_prefix_count < 2) {
+            RCLCPP_WARN(
+              get_logger(),
+              "RRT*: dense check failed before meaningful prefix (safe_prefix=%zu/%zu states)",
+              safe_prefix_count, path->getStateCount());
+          }
+          handlePlanningFailure(
+            "RRT*: dense collision check rejected path", true);
+          return;
+        }
       }
 
       if (accepted_margin + 1e-6 < active_safety_margin_) {
@@ -515,7 +655,8 @@ private:
     path_msg.header.stamp = now();
 
     std::vector<ob::State *> states = path->getStates();
-    for (size_t i = 0; i < states.size(); ++i) {
+    const std::size_t count = std::min(publish_state_count, states.size());
+    for (size_t i = 0; i < count; ++i) {
       const auto * comp = states[i]->as<ob::CompoundState>();
       const auto * pos = comp->as<ob::RealVectorStateSpace::StateType>(0);
       geometry_msgs::msg::PoseStamped pose;
@@ -778,8 +919,15 @@ private:
   double max_approx_goal_distance_;
   bool enable_dense_path_validation_;
   double collision_check_resolution_m_;
+  double dense_check_safety_scale_;
   double postcheck_relax_step_;
   double start_exempt_radius_;
+  bool allow_progressive_approximate_;
+  double min_progress_toward_goal_m_;
+  bool allow_safe_prefix_fallback_;
+  double min_progress_path_length_m_;
+  bool allow_regressive_safe_prefix_;
+  double max_safe_prefix_regression_m_;
   int consecutive_failures_before_hover_;
   bool hover_on_planning_failure_;
   int path_failure_streak_{0};

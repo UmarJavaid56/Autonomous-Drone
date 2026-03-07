@@ -44,6 +44,42 @@ def generate_launch_description():
     mission_subgoal_lookahead_m = LaunchConfiguration("mission_subgoal_lookahead_m", default="1.8")
     mission_inflation_radius_m = LaunchConfiguration("mission_inflation_radius_m", default="0.12")
     mission_unknown_is_blocked = LaunchConfiguration("mission_unknown_is_blocked", default="true")
+    mission_recovery_empty_path_streak = LaunchConfiguration(
+        "mission_recovery_empty_path_streak", default="10"
+    )
+    mission_recovery_stuck_timeout_sec = LaunchConfiguration(
+        "mission_recovery_stuck_timeout_sec", default="8.0"
+    )
+    mission_recovery_progress_epsilon_m = LaunchConfiguration(
+        "mission_recovery_progress_epsilon_m", default="0.12"
+    )
+    mission_recovery_min_target_distance_m = LaunchConfiguration(
+        "mission_recovery_min_target_distance_m", default="0.8"
+    )
+    mission_recovery_retarget_cooldown_sec = LaunchConfiguration(
+        "mission_recovery_retarget_cooldown_sec", default="2.0"
+    )
+    mission_enable_progress_subgoal = LaunchConfiguration(
+        "mission_enable_progress_subgoal", default="false"
+    )
+    mission_progress_min_improvement_m = LaunchConfiguration(
+        "mission_progress_min_improvement_m", default="0.20"
+    )
+    mission_progress_min_target_distance_m = LaunchConfiguration(
+        "mission_progress_min_target_distance_m", default="0.70"
+    )
+    mission_progress_max_target_distance_m = LaunchConfiguration(
+        "mission_progress_max_target_distance_m", default="1.60"
+    )
+    mission_progress_distance_penalty = LaunchConfiguration(
+        "mission_progress_distance_penalty", default="0.10"
+    )
+    mission_recovery_progress_min_improvement_m = LaunchConfiguration(
+        "mission_recovery_progress_min_improvement_m", default="0.10"
+    )
+    mission_recovery_progress_max_target_distance_m = LaunchConfiguration(
+        "mission_recovery_progress_max_target_distance_m", default="1.80"
+    )
     auto_takeoff = LaunchConfiguration("auto_takeoff", default="false")
     drone_radius = LaunchConfiguration("drone_radius", default="0.25")
     unknown_is_occupied = LaunchConfiguration("unknown_is_occupied", default="false")
@@ -55,13 +91,24 @@ def generate_launch_description():
     no_solution_before_relax = LaunchConfiguration("no_solution_before_relax", default="4")
     success_before_tighten = LaunchConfiguration("success_before_tighten", default="4")
     enable_dense_path_validation = LaunchConfiguration("enable_dense_path_validation", default="true")
-    collision_check_resolution_m = LaunchConfiguration("collision_check_resolution_m", default="0.10")
+    collision_check_resolution_m = LaunchConfiguration("collision_check_resolution_m", default="0.05")
+    dense_check_safety_scale = LaunchConfiguration("dense_check_safety_scale", default="0.70")
     postcheck_relax_step = LaunchConfiguration("postcheck_relax_step", default="0.02")
     start_exempt_radius = LaunchConfiguration("start_exempt_radius", default="0.12")
+    allow_progressive_approximate = LaunchConfiguration("allow_progressive_approximate", default="true")
+    min_progress_toward_goal_m = LaunchConfiguration("min_progress_toward_goal_m", default="0.25")
+    allow_safe_prefix_fallback = LaunchConfiguration("allow_safe_prefix_fallback", default="true")
+    min_progress_path_length_m = LaunchConfiguration("min_progress_path_length_m", default="0.20")
+    allow_regressive_safe_prefix = LaunchConfiguration("allow_regressive_safe_prefix", default="true")
+    max_safe_prefix_regression_m = LaunchConfiguration("max_safe_prefix_regression_m", default="1.20")
     consecutive_failures_before_hover = LaunchConfiguration("consecutive_failures_before_hover", default="8")
     hover_on_planning_failure = LaunchConfiguration("hover_on_planning_failure", default="true")
     planner_z_min = LaunchConfiguration("planner_z_min", default="-0.2")
     planner_z_max = LaunchConfiguration("planner_z_max", default="1.25")
+    map_x_min = LaunchConfiguration("map_x_min", default="-2.0")
+    map_x_max = LaunchConfiguration("map_x_max", default="12.5")
+    map_y_min = LaunchConfiguration("map_y_min", default="-6.0")
+    map_y_max = LaunchConfiguration("map_y_max", default="6.0")
     min_altitude_for_xy_motion = LaunchConfiguration("min_altitude_for_xy_motion", default="0.85")
     hover_reference_frame_id = LaunchConfiguration("hover_reference_frame_id", default="odom")
     cmd_vel_body_x_gain = LaunchConfiguration("cmd_vel_body_x_gain", default="1.0")
@@ -173,6 +220,10 @@ def generate_launch_description():
             esdf_params,
             {"use_sim_time": use_sim_time},
             {"point_cloud_topic": "/oak_d_lite/depth/points_filtered"},
+            {"x_min": map_x_min},
+            {"x_max": map_x_max},
+            {"y_min": map_y_min},
+            {"y_max": map_y_max},
             {"max_map_age_sec": 2.0},
             {"unknown_is_occupied": unknown_is_occupied},
         ],
@@ -198,10 +249,21 @@ def generate_launch_description():
             {"success_before_tighten": success_before_tighten},
             {"enable_dense_path_validation": enable_dense_path_validation},
             {"collision_check_resolution_m": collision_check_resolution_m},
+            {"dense_check_safety_scale": dense_check_safety_scale},
             {"postcheck_relax_step": postcheck_relax_step},
             {"start_exempt_radius": start_exempt_radius},
+            {"allow_progressive_approximate": allow_progressive_approximate},
+            {"min_progress_toward_goal_m": min_progress_toward_goal_m},
+            {"allow_safe_prefix_fallback": allow_safe_prefix_fallback},
+            {"min_progress_path_length_m": min_progress_path_length_m},
+            {"allow_regressive_safe_prefix": allow_regressive_safe_prefix},
+            {"max_safe_prefix_regression_m": max_safe_prefix_regression_m},
             {"consecutive_failures_before_hover": consecutive_failures_before_hover},
             {"hover_on_planning_failure": hover_on_planning_failure},
+            {"x_min": map_x_min},
+            {"x_max": map_x_max},
+            {"y_min": map_y_min},
+            {"y_max": map_y_max},
             {"z_min": planner_z_min},
             {"z_max": planner_z_max},
             {"replan_rate": 2.0},
@@ -292,10 +354,23 @@ def generate_launch_description():
             {"use_sim_time": use_sim_time},
             {"start_delay_sec": ParameterValue(mission_start_delay_sec, value_type=float)},
             {"final_goal_topic": mission_final_goal_topic},
+            {"goal_z": ParameterValue(min_altitude_for_xy_motion, value_type=float)},
             {"final_goal_reach_tolerance": ParameterValue(mission_final_goal_tolerance, value_type=float)},
             {"subgoal_lookahead_m": ParameterValue(mission_subgoal_lookahead_m, value_type=float)},
             {"inflation_radius_m": ParameterValue(mission_inflation_radius_m, value_type=float)},
             {"unknown_is_blocked": ParameterValue(mission_unknown_is_blocked, value_type=bool)},
+            {"recovery_empty_path_streak": ParameterValue(mission_recovery_empty_path_streak, value_type=int)},
+            {"recovery_stuck_timeout_sec": ParameterValue(mission_recovery_stuck_timeout_sec, value_type=float)},
+            {"recovery_progress_epsilon_m": ParameterValue(mission_recovery_progress_epsilon_m, value_type=float)},
+            {"recovery_min_target_distance_m": ParameterValue(mission_recovery_min_target_distance_m, value_type=float)},
+            {"recovery_retarget_cooldown_sec": ParameterValue(mission_recovery_retarget_cooldown_sec, value_type=float)},
+            {"enable_progress_subgoal": ParameterValue(mission_enable_progress_subgoal, value_type=bool)},
+            {"progress_min_improvement_m": ParameterValue(mission_progress_min_improvement_m, value_type=float)},
+            {"progress_min_target_distance_m": ParameterValue(mission_progress_min_target_distance_m, value_type=float)},
+            {"progress_max_target_distance_m": ParameterValue(mission_progress_max_target_distance_m, value_type=float)},
+            {"progress_distance_penalty": ParameterValue(mission_progress_distance_penalty, value_type=float)},
+            {"recovery_progress_min_improvement_m": ParameterValue(mission_recovery_progress_min_improvement_m, value_type=float)},
+            {"recovery_progress_max_target_distance_m": ParameterValue(mission_recovery_progress_max_target_distance_m, value_type=float)},
         ],
         condition=IfCondition(enable_waypoint_mission),
     )
@@ -378,6 +453,66 @@ def generate_launch_description():
             description="If true, unknown occupancy cells are blocked in mission-level path search.",
         ),
         DeclareLaunchArgument(
+            "mission_recovery_empty_path_streak",
+            default_value="10",
+            description="Consecutive empty planner paths before mission forces an open-space recovery target.",
+        ),
+        DeclareLaunchArgument(
+            "mission_recovery_stuck_timeout_sec",
+            default_value="8.0",
+            description="No-progress timeout before mission forces a recovery target.",
+        ),
+        DeclareLaunchArgument(
+            "mission_recovery_progress_epsilon_m",
+            default_value="0.12",
+            description="Minimum target-distance improvement to count as mission progress.",
+        ),
+        DeclareLaunchArgument(
+            "mission_recovery_min_target_distance_m",
+            default_value="0.8",
+            description="Minimum distance for recovery-selected target from current position.",
+        ),
+        DeclareLaunchArgument(
+            "mission_recovery_retarget_cooldown_sec",
+            default_value="2.0",
+            description="Cooldown between forced mission recovery retarget attempts.",
+        ),
+        DeclareLaunchArgument(
+            "mission_enable_progress_subgoal",
+            default_value="false",
+            description="If true, mission selects dynamic safe progress points when direct map path is unavailable.",
+        ),
+        DeclareLaunchArgument(
+            "mission_progress_min_improvement_m",
+            default_value="0.20",
+            description="Minimum reduction in final-goal distance (meters) required for a safe progress target.",
+        ),
+        DeclareLaunchArgument(
+            "mission_progress_min_target_distance_m",
+            default_value="0.70",
+            description="Minimum separation from current position (meters) for normal safe progress targets.",
+        ),
+        DeclareLaunchArgument(
+            "mission_progress_max_target_distance_m",
+            default_value="1.60",
+            description="Maximum separation from current position (meters) for normal safe progress targets.",
+        ),
+        DeclareLaunchArgument(
+            "mission_progress_distance_penalty",
+            default_value="0.10",
+            description="Penalty on target distance when scoring safe progress candidates.",
+        ),
+        DeclareLaunchArgument(
+            "mission_recovery_progress_min_improvement_m",
+            default_value="0.10",
+            description="Minimum reduction in final-goal distance (meters) required for recovery safe progress targets.",
+        ),
+        DeclareLaunchArgument(
+            "mission_recovery_progress_max_target_distance_m",
+            default_value="1.80",
+            description="Maximum separation from current position (meters) for recovery safe progress targets.",
+        ),
+        DeclareLaunchArgument(
             "planner_z_min",
             default_value="-0.2",
             description="Planner lower altitude bound in map frame (meters).",
@@ -386,6 +521,26 @@ def generate_launch_description():
             "planner_z_max",
             default_value="1.25",
             description="Planner upper altitude bound in map frame (meters).",
+        ),
+        DeclareLaunchArgument(
+            "map_x_min",
+            default_value="-2.0",
+            description="Shared ESDF/RRT lower X bound in map frame (meters).",
+        ),
+        DeclareLaunchArgument(
+            "map_x_max",
+            default_value="12.5",
+            description="Shared ESDF/RRT upper X bound in map frame (meters).",
+        ),
+        DeclareLaunchArgument(
+            "map_y_min",
+            default_value="-6.0",
+            description="Shared ESDF/RRT lower Y bound in map frame (meters).",
+        ),
+        DeclareLaunchArgument(
+            "map_y_max",
+            default_value="6.0",
+            description="Shared ESDF/RRT upper Y bound in map frame (meters).",
         ),
         DeclareLaunchArgument(
             "min_altitude_for_xy_motion",
@@ -484,7 +639,7 @@ def generate_launch_description():
         ),
         DeclareLaunchArgument(
             "drone_radius",
-            default_value="0.25",
+            default_value="0.30",
             description="Planner collision radius used for ESDF clearance checks (meters).",
         ),
         DeclareLaunchArgument(
@@ -519,8 +674,13 @@ def generate_launch_description():
         ),
         DeclareLaunchArgument(
             "collision_check_resolution_m",
-            default_value="0.10",
+            default_value="0.05",
             description="Dense path collision sampling spacing in meters.",
+        ),
+        DeclareLaunchArgument(
+            "dense_check_safety_scale",
+            default_value="0.70",
+            description="Scale [0..1] applied to safety_margin during dense path validation.",
         ),
         DeclareLaunchArgument(
             "postcheck_relax_step",
@@ -530,7 +690,37 @@ def generate_launch_description():
         DeclareLaunchArgument(
             "start_exempt_radius",
             default_value="0.12",
-            description="Collision-check exemption radius around current drone position to avoid startup lock-in.",
+            description="Collision-check exemption radius around the drone to reduce startup self-map lock-in.",
+        ),
+        DeclareLaunchArgument(
+            "allow_progressive_approximate",
+            default_value="true",
+            description="If true, allow approximate solutions that still make minimum progress to goal.",
+        ),
+        DeclareLaunchArgument(
+            "min_progress_toward_goal_m",
+            default_value="0.25",
+            description="Minimum goal-distance reduction required for progress-only approximate/safe-prefix acceptance.",
+        ),
+        DeclareLaunchArgument(
+            "allow_safe_prefix_fallback",
+            default_value="true",
+            description="If true, publish a collision-safe path prefix when dense-check rejects full path.",
+        ),
+        DeclareLaunchArgument(
+            "min_progress_path_length_m",
+            default_value="0.20",
+            description="Minimum prefix path length required to publish safe-prefix fallback.",
+        ),
+        DeclareLaunchArgument(
+            "allow_regressive_safe_prefix",
+            default_value="true",
+            description="If true, allow bounded temporary regression for safe-prefix fallback (maze detours).",
+        ),
+        DeclareLaunchArgument(
+            "max_safe_prefix_regression_m",
+            default_value="1.20",
+            description="Maximum temporary goal-distance regression allowed for regressive safe-prefix fallback.",
         ),
         DeclareLaunchArgument(
             "consecutive_failures_before_hover",
@@ -544,7 +734,7 @@ def generate_launch_description():
         ),
         DeclareLaunchArgument(
             "unknown_is_occupied",
-            default_value="false",
+            default_value="true",
             description="If true, planner treats unknown space as occupied (safe mapped mode). If false, unknown is allowed (explore mode).",
         ),
         DeclareLaunchArgument(

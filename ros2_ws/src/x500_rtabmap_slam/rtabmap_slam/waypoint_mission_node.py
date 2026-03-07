@@ -15,7 +15,7 @@ from typing import Dict, List, Optional, Tuple
 
 import rclpy
 from geometry_msgs.msg import PoseStamped
-from nav_msgs.msg import OccupancyGrid
+from nav_msgs.msg import OccupancyGrid, Path
 from rclpy.duration import Duration
 from rclpy.node import Node
 from rclpy.qos import (
@@ -52,6 +52,19 @@ class WaypointMissionNode(Node):
         self.declare_parameter("max_goal_search_radius_m", 2.5)
         self.declare_parameter("frontier_min_distance_m", 0.8)
         self.declare_parameter("frontier_distance_weight", 0.15)
+        self.declare_parameter("planner_path_topic", "path")
+        self.declare_parameter("recovery_empty_path_streak", 10)
+        self.declare_parameter("recovery_stuck_timeout_sec", 8.0)
+        self.declare_parameter("recovery_progress_epsilon_m", 0.12)
+        self.declare_parameter("recovery_min_target_distance_m", 0.8)
+        self.declare_parameter("recovery_retarget_cooldown_sec", 2.0)
+        self.declare_parameter("enable_progress_subgoal", True)
+        self.declare_parameter("progress_min_improvement_m", 0.20)
+        self.declare_parameter("progress_min_target_distance_m", 0.70)
+        self.declare_parameter("progress_max_target_distance_m", 1.60)
+        self.declare_parameter("progress_distance_penalty", 0.10)
+        self.declare_parameter("recovery_progress_min_improvement_m", 0.10)
+        self.declare_parameter("recovery_progress_max_target_distance_m", 1.80)
 
         self.goal_topic = str(self.get_parameter("goal_topic").value)
         self.final_goal_topic = str(self.get_parameter("final_goal_topic").value)
@@ -81,10 +94,51 @@ class WaypointMissionNode(Node):
         self.frontier_distance_weight = float(
             self.get_parameter("frontier_distance_weight").value
         )
+        self.planner_path_topic = str(self.get_parameter("planner_path_topic").value)
+        self.recovery_empty_path_streak = int(
+            self.get_parameter("recovery_empty_path_streak").value
+        )
+        self.recovery_stuck_timeout_sec = float(
+            self.get_parameter("recovery_stuck_timeout_sec").value
+        )
+        self.recovery_progress_epsilon_m = float(
+            self.get_parameter("recovery_progress_epsilon_m").value
+        )
+        self.recovery_min_target_distance_m = float(
+            self.get_parameter("recovery_min_target_distance_m").value
+        )
+        self.recovery_retarget_cooldown_sec = float(
+            self.get_parameter("recovery_retarget_cooldown_sec").value
+        )
+        self.enable_progress_subgoal = bool(
+            self.get_parameter("enable_progress_subgoal").value
+        )
+        self.progress_min_improvement_m = max(
+            0.0, float(self.get_parameter("progress_min_improvement_m").value)
+        )
+        self.progress_min_target_distance_m = max(
+            0.0, float(self.get_parameter("progress_min_target_distance_m").value)
+        )
+        self.progress_max_target_distance_m = max(
+            0.0, float(self.get_parameter("progress_max_target_distance_m").value)
+        )
+        self.progress_distance_penalty = max(
+            0.0, float(self.get_parameter("progress_distance_penalty").value)
+        )
+        self.recovery_progress_min_improvement_m = max(
+            0.0, float(self.get_parameter("recovery_progress_min_improvement_m").value)
+        )
+        self.recovery_progress_max_target_distance_m = max(
+            0.0,
+            float(self.get_parameter("recovery_progress_max_target_distance_m").value),
+        )
 
         self.goal_pub = self.create_publisher(PoseStamped, self.goal_topic, 10)
         self.final_goal_sub = self.create_subscription(
             PoseStamped, self.final_goal_topic, self._on_final_goal, 10
+        )
+        self.path_sub = self.create_subscription(
+            Path, self.planner_path_topic, self._on_path, 10
         )
         # RTAB-Map occupancy often behaves like a latched topic; use transient-local
         # so a late-joining mission node still receives the latest map snapshot.
@@ -110,6 +164,12 @@ class WaypointMissionNode(Node):
         self.active_subgoal_xy: Optional[Tuple[float, float]] = None
         self.final_goal_xy: Optional[Tuple[float, float]] = None
         self.final_goal_reached = False
+        self.path_seen = False
+        self.empty_path_streak = 0
+        self.best_dist_to_target = float("inf")
+        self.last_progress_target_xy: Optional[Tuple[float, float]] = None
+        self.last_progress_time = self.get_clock().now()
+        self.last_recovery_attempt_ns = 0
 
         self._disk_offsets_cache: Dict[int, List[Tuple[int, int]]] = {}
 
@@ -136,6 +196,13 @@ class WaypointMissionNode(Node):
     def _on_map(self, msg: OccupancyGrid) -> None:
         self.map_msg = msg
 
+    def _on_path(self, msg: Path) -> None:
+        self.path_seen = True
+        if len(msg.poses) < 2:
+            self.empty_path_streak += 1
+            return
+        self.empty_path_streak = 0
+
     def _on_final_goal(self, msg: PoseStamped) -> None:
         if msg.header.frame_id and msg.header.frame_id != self.map_frame_id:
             self.get_logger().warn(
@@ -146,6 +213,10 @@ class WaypointMissionNode(Node):
         self.active_subgoal_xy = None
         self.final_goal_reached = False
         self.last_mode = None
+        self.best_dist_to_target = float("inf")
+        self.last_progress_target_xy = None
+        self.last_progress_time = self.get_clock().now()
+        self.last_recovery_attempt_ns = 0
         self.get_logger().info(
             "Received new final goal: (%.2f, %.2f)" % self.final_goal_xy
         )
@@ -419,24 +490,9 @@ class WaypointMissionNode(Node):
         origin_y = float(map_msg.info.origin.position.y)
         raw = map_msg.data
 
-        sidx = self._cell_to_index(start[0], start[1], width)
-        if blocked[sidx]:
+        reachable = self._reachable_mask(start, blocked, width, height)
+        if reachable is None:
             return None
-
-        reachable = bytearray(width * height)
-        q = deque([start])
-        reachable[sidx] = 1
-
-        while q:
-            x, y = q.popleft()
-            for nx, ny in ((x - 1, y), (x + 1, y), (x, y - 1), (x, y + 1)):
-                if not self._in_bounds(nx, ny, width, height):
-                    continue
-                nidx = self._cell_to_index(nx, ny, width)
-                if reachable[nidx] or blocked[nidx]:
-                    continue
-                reachable[nidx] = 1
-                q.append((nx, ny))
 
         best_cell: Optional[Cell] = None
         best_score = float("inf")
@@ -473,6 +529,88 @@ class WaypointMissionNode(Node):
 
         return best_cell
 
+    def _reachable_mask(
+        self, start: Cell, blocked: bytearray, width: int, height: int
+    ) -> Optional[bytearray]:
+        sidx = self._cell_to_index(start[0], start[1], width)
+        if blocked[sidx]:
+            return None
+
+        reachable = bytearray(width * height)
+        q = deque([start])
+        reachable[sidx] = 1
+
+        while q:
+            x, y = q.popleft()
+            for nx, ny in ((x - 1, y), (x + 1, y), (x, y - 1), (x, y + 1)):
+                if not self._in_bounds(nx, ny, width, height):
+                    continue
+                nidx = self._cell_to_index(nx, ny, width)
+                if reachable[nidx] or blocked[nidx]:
+                    continue
+                reachable[nidx] = 1
+                q.append((nx, ny))
+
+        return reachable
+
+    def _best_progress_cell(
+        self,
+        start: Cell,
+        blocked: bytearray,
+        map_msg: OccupancyGrid,
+        current_xy: Tuple[float, float],
+        final_goal_xy: Tuple[float, float],
+        min_distance_m: float,
+        min_progress_m: float,
+        max_distance_m: float,
+    ) -> Optional[Cell]:
+        width = int(map_msg.info.width)
+        height = int(map_msg.info.height)
+        resolution = float(map_msg.info.resolution)
+        origin_x = float(map_msg.info.origin.position.x)
+        origin_y = float(map_msg.info.origin.position.y)
+        raw = map_msg.data
+
+        current_goal_dist = math.hypot(
+            final_goal_xy[0] - current_xy[0], final_goal_xy[1] - current_xy[1]
+        )
+        if current_goal_dist <= min_progress_m:
+            return None
+
+        reachable = self._reachable_mask(start, blocked, width, height)
+        if reachable is None:
+            return None
+
+        best_cell: Optional[Cell] = None
+        best_score = -float("inf")
+
+        for idx, is_reachable in enumerate(reachable):
+            if not is_reachable:
+                continue
+            if blocked[idx]:
+                continue
+            occ = raw[idx]
+            if occ < 0 or occ >= self.occupied_threshold:
+                continue
+            x = idx % width
+            y = idx // width
+            wx, wy = self._cell_to_world(x, y, origin_x, origin_y, resolution)
+            dist_cur = math.hypot(wx - current_xy[0], wy - current_xy[1])
+            if dist_cur < min_distance_m:
+                continue
+            if max_distance_m > 0.0 and dist_cur > max_distance_m:
+                continue
+            dist_goal = math.hypot(wx - final_goal_xy[0], wy - final_goal_xy[1])
+            progress = current_goal_dist - dist_goal
+            if progress < min_progress_m:
+                continue
+            score = progress - self.progress_distance_penalty * dist_cur
+            if score > best_score:
+                best_score = score
+                best_cell = (x, y)
+
+        return best_cell
+
     def _compute_subgoal(
         self,
         current_xy: Tuple[float, float],
@@ -480,13 +618,13 @@ class WaypointMissionNode(Node):
     ) -> Tuple[Optional[Tuple[float, float]], str]:
         map_msg = self.map_msg
         if map_msg is None:
-            return final_goal_xy, "direct_goal_no_map"
+            return current_xy, "hold_no_map"
 
         width = int(map_msg.info.width)
         height = int(map_msg.info.height)
         resolution = float(map_msg.info.resolution)
         if width <= 0 or height <= 0 or resolution <= 0.0:
-            return final_goal_xy, "direct_goal_bad_map"
+            return current_xy, "hold_bad_map"
 
         origin_x = float(map_msg.info.origin.position.x)
         origin_y = float(map_msg.info.origin.position.y)
@@ -499,7 +637,7 @@ class WaypointMissionNode(Node):
         )
 
         if not self._in_bounds(start_cell[0], start_cell[1], width, height):
-            return final_goal_xy, "direct_goal_start_oob"
+            return current_xy, "hold_start_oob"
 
         blocked = self._build_blocked_grid(map_msg, start_cell)
         goal_in_bounds = self._in_bounds(goal_cell_raw[0], goal_cell_raw[1], width, height)
@@ -515,7 +653,58 @@ class WaypointMissionNode(Node):
                         target_cell[0], target_cell[1], origin_x, origin_y, resolution
                     )
                     return target_xy, "path"
+            if self.enable_progress_subgoal:
+                progress_cell = self._best_progress_cell(
+                    start_cell,
+                    blocked,
+                    map_msg,
+                    current_xy,
+                    final_goal_xy,
+                    self.progress_min_target_distance_m,
+                    self.progress_min_improvement_m,
+                    self.progress_max_target_distance_m,
+                )
+                if progress_cell is not None:
+                    target_xy = self._cell_to_world(
+                        progress_cell[0], progress_cell[1], origin_x, origin_y, resolution
+                    )
+                    return target_xy, "safe_progress"
         else:
+            # If final goal is outside current map, prefer a safe in-map target
+            # that still makes measurable progress toward the final goal.
+            if self.enable_progress_subgoal:
+                progress_cell = self._best_progress_cell(
+                    start_cell,
+                    blocked,
+                    map_msg,
+                    current_xy,
+                    final_goal_xy,
+                    self.progress_min_target_distance_m,
+                    self.progress_min_improvement_m,
+                    self.progress_max_target_distance_m,
+                )
+                if progress_cell is not None:
+                    target_xy = self._cell_to_world(
+                        progress_cell[0], progress_cell[1], origin_x, origin_y, resolution
+                    )
+                    return target_xy, "safe_progress_goal_oob"
+
+            # If no measurable-progress target exists yet, clamp the out-of-bounds
+            # final goal to map limits and run A* to this in-bounds proxy.
+            goal_clamped = (
+                min(max(goal_cell_raw[0], 0), width - 1),
+                min(max(goal_cell_raw[1], 0), height - 1),
+            )
+            goal_proxy = self._nearest_free_cell(goal_clamped, blocked, width, height, resolution)
+            if goal_proxy is not None:
+                proxy_path = self._a_star(start_cell, goal_proxy, blocked, width, height)
+                if proxy_path:
+                    target_cell = self._select_path_lookahead_cell(proxy_path, resolution)
+                    target_xy = self._cell_to_world(
+                        target_cell[0], target_cell[1], origin_x, origin_y, resolution
+                    )
+                    return target_xy, "path_goal_oob_clamped"
+
             frontier_cell = self._best_frontier_cell(
                 start_cell, blocked, map_msg, current_xy, final_goal_xy
             )
@@ -540,7 +729,7 @@ class WaypointMissionNode(Node):
                     reachable_cell[0], reachable_cell[1], origin_x, origin_y, resolution
                 )
                 return target_xy, "reachable_goal_oob"
-            return final_goal_xy, "direct_goal_goal_oob_no_frontier"
+            return current_xy, "hold_goal_oob_no_frontier"
 
         frontier_cell = self._best_frontier_cell(
             start_cell, blocked, map_msg, current_xy, final_goal_xy
@@ -551,7 +740,91 @@ class WaypointMissionNode(Node):
             )
             return target_xy, "frontier"
 
-        return final_goal_xy, "direct_goal_no_subgoal"
+        return current_xy, "hold_no_subgoal"
+
+    def _compute_recovery_subgoal(
+        self,
+        current_xy: Tuple[float, float],
+        final_goal_xy: Tuple[float, float],
+    ) -> Tuple[Optional[Tuple[float, float]], str]:
+        map_msg = self.map_msg
+        if map_msg is None:
+            return None, "no_map"
+
+        width = int(map_msg.info.width)
+        height = int(map_msg.info.height)
+        resolution = float(map_msg.info.resolution)
+        if width <= 0 or height <= 0 or resolution <= 0.0:
+            return None, "bad_map"
+
+        origin_x = float(map_msg.info.origin.position.x)
+        origin_y = float(map_msg.info.origin.position.y)
+        start_cell = self._world_to_cell(
+            current_xy[0], current_xy[1], origin_x, origin_y, resolution
+        )
+        if not self._in_bounds(start_cell[0], start_cell[1], width, height):
+            return None, "start_oob"
+
+        blocked = self._build_blocked_grid(map_msg, start_cell)
+
+        if self.enable_progress_subgoal:
+            progress_cell = self._best_progress_cell(
+                start_cell,
+                blocked,
+                map_msg,
+                current_xy,
+                final_goal_xy,
+                self.recovery_min_target_distance_m,
+                self.recovery_progress_min_improvement_m,
+                self.recovery_progress_max_target_distance_m,
+            )
+            if progress_cell is not None:
+                target_xy = self._cell_to_world(
+                    progress_cell[0], progress_cell[1], origin_x, origin_y, resolution
+                )
+                return target_xy, "safe_progress"
+
+        frontier_cell = self._best_frontier_cell(
+            start_cell,
+            blocked,
+            map_msg,
+            current_xy,
+            final_goal_xy,
+            require_unknown_neighbor=True,
+            min_distance_m_override=self.recovery_min_target_distance_m,
+        )
+        if frontier_cell is not None:
+            target_xy = self._cell_to_world(
+                frontier_cell[0], frontier_cell[1], origin_x, origin_y, resolution
+            )
+            return target_xy, "frontier_escape"
+
+        reachable_cell = self._best_frontier_cell(
+            start_cell,
+            blocked,
+            map_msg,
+            current_xy,
+            final_goal_xy,
+            require_unknown_neighbor=False,
+            min_distance_m_override=self.recovery_min_target_distance_m,
+        )
+        if reachable_cell is None:
+            reachable_cell = self._best_frontier_cell(
+                start_cell,
+                blocked,
+                map_msg,
+                current_xy,
+                final_goal_xy,
+                require_unknown_neighbor=False,
+                min_distance_m_override=0.0,
+            )
+        if reachable_cell is not None:
+            target_xy = self._cell_to_world(
+                reachable_cell[0], reachable_cell[1], origin_x, origin_y, resolution
+            )
+            return target_xy, "reachable_escape"
+
+        return None, "no_escape_cell"
 
     def _on_timer(self) -> None:
         now = self.get_clock().now()
@@ -582,6 +855,30 @@ class WaypointMissionNode(Node):
             self.final_goal_xy[0] - current_xy[0],
             self.final_goal_xy[1] - current_xy[1],
         )
+
+        target_for_progress = (
+            self.active_subgoal_xy if self.active_subgoal_xy is not None else self.final_goal_xy
+        )
+        if (
+            self.last_progress_target_xy is None
+            or math.hypot(
+                target_for_progress[0] - self.last_progress_target_xy[0],
+                target_for_progress[1] - self.last_progress_target_xy[1],
+            )
+            >= self.retarget_min_separation_m
+        ):
+            self.last_progress_target_xy = target_for_progress
+            self.best_dist_to_target = float("inf")
+            self.last_progress_time = now
+
+        dist_to_target = math.hypot(
+            target_for_progress[0] - current_xy[0],
+            target_for_progress[1] - current_xy[1],
+        )
+        if dist_to_target + self.recovery_progress_epsilon_m < self.best_dist_to_target:
+            self.best_dist_to_target = dist_to_target
+            self.last_progress_time = now
+
         if dist_to_final <= self.final_goal_reach_tolerance:
             if not self.final_goal_reached:
                 self.final_goal_reached = True
@@ -593,6 +890,48 @@ class WaypointMissionNode(Node):
             self._publish_goal(self.final_goal_xy[0], self.final_goal_xy[1])
             return
         self.final_goal_reached = False
+
+        stuck_sec = (now - self.last_progress_time).nanoseconds * 1e-9
+        empty_path_triggered = (
+            self.path_seen and self.empty_path_streak >= self.recovery_empty_path_streak
+        )
+        stuck_triggered = stuck_sec >= self.recovery_stuck_timeout_sec
+        recovery_cooldown_ns = int(self.recovery_retarget_cooldown_sec * 1e9)
+        can_attempt_recovery = (
+            now.nanoseconds - self.last_recovery_attempt_ns >= recovery_cooldown_ns
+        )
+
+        if (empty_path_triggered or stuck_triggered) and can_attempt_recovery:
+            self.last_recovery_attempt_ns = now.nanoseconds
+            recovery_xy, recovery_reason = self._compute_recovery_subgoal(
+                current_xy, self.final_goal_xy
+            )
+            if recovery_xy is not None:
+                self.active_subgoal_xy = recovery_xy
+                self.last_progress_target_xy = recovery_xy
+                self.best_dist_to_target = math.hypot(
+                    recovery_xy[0] - current_xy[0], recovery_xy[1] - current_xy[1]
+                )
+                self.last_progress_time = now
+
+                mode = "recovery_%s" % recovery_reason
+                self._publish_goal(self.active_subgoal_xy[0], self.active_subgoal_xy[1])
+                if mode != self.last_mode:
+                    self.last_mode = mode
+                    self.get_logger().warn(
+                        "Mission mode=%s target=(%.2f, %.2f) final=(%.2f, %.2f) "
+                        "[empty_path_streak=%d stuck_for=%.1fs]"
+                        % (
+                            mode,
+                            self.active_subgoal_xy[0],
+                            self.active_subgoal_xy[1],
+                            self.final_goal_xy[0],
+                            self.final_goal_xy[1],
+                            self.empty_path_streak,
+                            stuck_sec,
+                        )
+                    )
+                return
 
         proposed_subgoal, mode = self._compute_subgoal(current_xy, self.final_goal_xy)
         if proposed_subgoal is None:
