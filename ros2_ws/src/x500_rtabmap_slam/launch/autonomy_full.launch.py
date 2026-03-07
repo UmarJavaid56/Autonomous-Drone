@@ -82,7 +82,7 @@ def generate_launch_description():
     )
     auto_takeoff = LaunchConfiguration("auto_takeoff", default="false")
     drone_radius = LaunchConfiguration("drone_radius", default="0.25")
-    unknown_is_occupied = LaunchConfiguration("unknown_is_occupied", default="false")
+    unknown_is_occupied = LaunchConfiguration("unknown_is_occupied", default="true")
     max_approx_goal_distance = LaunchConfiguration("max_approx_goal_distance", default="0.8")
     safety_margin = LaunchConfiguration("safety_margin", default="0.32")
     adaptive_safety_margin = LaunchConfiguration("adaptive_safety_margin", default="true")
@@ -169,7 +169,7 @@ def generate_launch_description():
         "Reg/Strategy": "1",
         "Grid/FromDepth": True,
         "Grid/3D": "true",
-        "Grid/RangeMax": "5.0",
+        "Grid/RangeMax": "4.0",
         "Grid/CellSize": "0.05",
         "Icp/VoxelSize": "0.05",
         "Icp/MaxCorrespondenceDistance": "0.15",
@@ -290,7 +290,7 @@ def generate_launch_description():
             {"path_topic": "path"},
             {"cmd_vel_topic": "/x500_depth/cmd_vel"},
             {"enable_topic": "/x500_depth/enable"},
-            {"waypoint_tolerance": 0.15},
+            {"waypoint_tolerance": 0.25},
             {"max_linear_speed": 1.2},
             {"max_angular_speed": 1.2},
             {"linear_kp": 1.6},
@@ -674,7 +674,7 @@ def generate_launch_description():
         ),
         DeclareLaunchArgument(
             "collision_check_resolution_m",
-            default_value="0.05",
+            default_value="0.10",
             description="Dense path collision sampling spacing in meters.",
         ),
         DeclareLaunchArgument(
