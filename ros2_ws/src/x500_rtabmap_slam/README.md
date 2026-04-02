@@ -13,6 +13,7 @@ RTAB-Map (Real-Time Appearance-Based Mapping) is a RGB-D SLAM approach that uses
 - **Loop Closure Detection**: Detects when the drone revisits previously mapped areas
 - **Occupancy Grid**: Generates 2D occupancy grid maps for navigation
 - **Localization Mode**: Can localize against previously created maps
+- **Map-Driven Maze Mission**: Accepts one final goal and generates intermediate subgoals from `/map` (A* + frontier fallback). Out-of-bounds goals trigger frontier/reachable in-map expansion before any direct-goal fallback.
 
 ## Launch Files
 
@@ -47,6 +48,37 @@ ros2 launch rtabmap_slam x500_rtabmap_slam.launch.py localization:=true
 # Without RViz
 ros2 launch rtabmap_slam x500_rtabmap_slam.launch.py rviz:=false
 ```
+
+### autonomy_full.launch.py
+
+Full autonomy stack (Gazebo + RTAB-Map + ESDF + RRT* + path executor):
+
+```bash
+ros2 launch x500_rtabmap_slam autonomy_full.launch.py rviz:=false
+```
+
+Enable map-driven maze autonomy (recommended for end-to-end maze runs):
+
+```bash
+ros2 launch x500_rtabmap_slam autonomy_full.launch.py \
+  rviz:=false auto_takeoff:=true enable_waypoint_mission:=true
+```
+
+Then send one final goal in map frame (the mission node will handle intermediate subgoals):
+
+```bash
+ros2 topic pub --once /maze_final_goal geometry_msgs/msg/PoseStamped \
+"{header: {frame_id: 'map'}, pose: {position: {x: 11.1, y: 0.0, z: 0.0}, orientation: {w: 1.0}}}"
+```
+
+Useful mission tuning arguments:
+- `mission_start_delay_sec` (default: `0.0`)
+- `mission_final_goal_topic` (default: `/maze_final_goal`)
+- `mission_final_goal_tolerance` (default: `0.60`)
+- `mission_subgoal_lookahead_m` (default: `1.8`)
+- `mission_inflation_radius_m` (default: `0.12`)
+- `mission_unknown_is_blocked` (default: `true`)
+- `drone_radius` (default: `0.25`)
 
 ## Topics
 
